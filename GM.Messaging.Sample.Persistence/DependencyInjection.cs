@@ -14,9 +14,8 @@ public static class DependencyInjection
 {
     public static IServiceCollection AddPersistence(this IServiceCollection services, IConfiguration configuration)
     {
-        services.AddEntityFrameworkNpgsql();
-
-        services.AddDbContextPool<ApplicationDbContext>((serviceProvider, options) =>
+        // shared service caching and is discouraged unless you inject custom EF services.
+        services.AddDbContextPool<ApplicationDbContext>(options =>
         {
             options.UseNpgsql(configuration.GetConnectionString("ApplicationDatabase"),
                 o =>
@@ -24,7 +23,6 @@ public static class DependencyInjection
                     o.UseQuerySplittingBehavior(QuerySplittingBehavior.SplitQuery);
                     o.CommandTimeout(60);
                 });
-            options.UseInternalServiceProvider(serviceProvider);
         });
 
         services.AddTransient<OutboxMessageRepository>();

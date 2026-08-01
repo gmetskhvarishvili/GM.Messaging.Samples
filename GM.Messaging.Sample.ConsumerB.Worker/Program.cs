@@ -22,7 +22,7 @@ using (var scope = app.Services.CreateScope())
 
             var logger = scope.ServiceProvider.GetService<ILogger<ConsumerDbContextSeed>>();
             if (logger != null)
-                new ConsumerDbContextSeed().SeedAsync(context, logger).Wait();
+                await new ConsumerDbContextSeed().SeedAsync(context, logger);
         }
     }
     catch (Exception ex)
