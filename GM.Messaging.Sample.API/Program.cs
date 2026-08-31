@@ -31,7 +31,7 @@ using (var scope = app.Services.CreateScope())
 
             var logger = scope.ServiceProvider.GetService<ILogger<ApplicationDbContextSeed>>();
             if (logger != null)
-                await new ApplicationDbContextSeed().SeedAsync(context, logger);
+                await ApplicationDbContextSeed.SeedAsync(context, logger);
         }
     }
     catch (Exception ex)
@@ -41,5 +41,5 @@ using (var scope = app.Services.CreateScope())
     }
 }
 
-app.Run();
+await app.RunAsync();
 

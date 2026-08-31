@@ -4,10 +4,10 @@ namespace GM.Messaging.Sample.API.Inventory;
 
 public class UpdateInventoryRequestModel
 {
-    public Guid ProductId { get; set; }
+    public required Guid ProductId { get; set; }
     public string? Warehouse { get; set; }
-    public int QuantityDelta { get; set; }
-    public int NewQuantity { get; set; }
+    public required int QuantityDelta { get; set; }
+    public required int NewQuantity { get; set; }
 }
 
 public class UpdateInventoryRequestModelValidator : AbstractValidator<UpdateInventoryRequestModel>
