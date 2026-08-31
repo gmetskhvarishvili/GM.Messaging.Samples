@@ -8,11 +8,12 @@
     </PropertyGroup>
 
     <ItemGroup>
+        <!-- Held at 10.0.10 to match GM.Messaging.Persistence's own pinned EF Core floor; a newer direct reference here creates an unresolved Microsoft.EntityFrameworkCore.Relational version conflict (MSB3277). -->
         <PackageReference Include="Microsoft.EntityFrameworkCore" Version="10.0.10" />
     </ItemGroup>
 
     <ItemGroup>
-        <PackageReference Include="GM.Messaging" Version="1.2.0" />
+        <PackageReference Include="GM.Messaging" Version="1.2.1" />
         <ProjectReference Include="..\GM.Messaging.Sample.Producer.Infrastructure\GM.Messaging.Sample.Producer.Infrastructure.csproj" />
         <ProjectReference Include="..\GM.Messaging.Sample.Persistence\GM.Messaging.Sample.Persistence.csproj" />
     </ItemGroup>
