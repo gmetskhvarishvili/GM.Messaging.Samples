@@ -1,0 +1,29 @@
+<Project>
+
+  <!--
+    Shared build settings for the GM.Messaging sample solution. The samples are executable
+    documentation, so they are held to the same engineering baseline as the packages they
+    demonstrate: latest analyzers + code style, with warnings treated as errors.
+  -->
+
+  <PropertyGroup>
+    <LangVersion>latest</LangVersion>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+
+    <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
+    <EnableNETAnalyzers>true</EnableNETAnalyzers>
+    <AnalysisLevel>latest-recommended</AnalysisLevel>
+    <EnforceCodeStyleInBuild>true</EnforceCodeStyleInBuild>
+
+    <!-- Ship IntelliSense docs where projects opt in; don't fail the build on undocumented members. -->
+    <!--
+      CA1848 (source-generated LoggerMessage delegates) and CA1873 (its value-type-boxing companion,
+      raised by the same params object[] logger overloads) are high-throughput micro-optimizations.
+      The sample logging behaviour favours a plain structured-template call for readability;
+      the delegate ceremony would obscure the teaching point, so both are relaxed sample-wide.
+    -->
+    <NoWarn>$(NoWarn);CS1591;CA1848;CA1873</NoWarn>
+  </PropertyGroup>
+
+</Project>

@@ -4,9 +4,9 @@ namespace GM.Messaging.Sample.API.Payments;
 
 public class ProcessPaymentRequestModel
 {
-    public Guid PaymentId { get; set; }
-    public Guid OrderId { get; set; }
-    public decimal Amount { get; set; }
+    public required Guid PaymentId { get; set; }
+    public required Guid OrderId { get; set; }
+    public required decimal Amount { get; set; }
     public string? Status { get; set; }
 }
 

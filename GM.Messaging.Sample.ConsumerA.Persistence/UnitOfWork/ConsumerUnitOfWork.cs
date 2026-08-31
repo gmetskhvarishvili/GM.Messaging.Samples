@@ -7,7 +7,7 @@ using Microsoft.EntityFrameworkCore.Storage;
 
 namespace GM.Messaging.Sample.ConsumerA.Persistence.UnitOfWork;
 
-public class ConsumerUnitOfWork(
+public sealed class ConsumerUnitOfWork(
     ConsumerDbContext context,
     IInboxMessageRepository inboxMessageRepository) : IConsumerUnitOfWork
 {
@@ -83,5 +83,6 @@ public class ConsumerUnitOfWork(
     {
         _transaction?.Dispose();
         context.Dispose();
+        GC.SuppressFinalize(this);
     }
 }

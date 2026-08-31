@@ -18,7 +18,7 @@ public class OutboxMessageTests
 
         var roundtrip = JsonSerializer.Deserialize<OrderPlacedIntegrationEvent>(outbox.Payload);
         Assert.NotNull(roundtrip);
-        Assert.Equal("EUR", roundtrip!.Currency);
+        Assert.Equal("EUR", roundtrip.Currency);
         Assert.Equal(evt.OrderId, roundtrip.OrderId);
     }
 }

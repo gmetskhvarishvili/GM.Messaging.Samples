@@ -4,9 +4,9 @@ namespace GM.Messaging.Sample.API.Orders;
 
 public class CreateOrderRequestModel
 {
-    public Guid OrderId { get; set; }
-    public Guid CustomerId { get; set; }
-    public decimal TotalAmount { get; set; }
+    public required Guid OrderId { get; set; }
+    public required Guid CustomerId { get; set; }
+    public required decimal TotalAmount { get; set; }
     public string? Currency { get; set; }
 }
 

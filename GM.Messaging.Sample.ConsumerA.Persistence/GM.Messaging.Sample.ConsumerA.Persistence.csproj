@@ -18,14 +18,14 @@
             <PrivateAssets>all</PrivateAssets>
             <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
         </PackageReference>
-        <PackageReference Include="Microsoft.Extensions.Configuration.EnvironmentVariables" Version="10.0.10" />
-        <PackageReference Include="Microsoft.Extensions.Configuration.FileExtensions" Version="10.0.10" />
-        <PackageReference Include="Microsoft.Extensions.Configuration.Json" Version="10.0.10" />
+        <PackageReference Include="Microsoft.Extensions.Configuration.EnvironmentVariables" Version="10.0.11" />
+        <PackageReference Include="Microsoft.Extensions.Configuration.FileExtensions" Version="10.0.11" />
+        <PackageReference Include="Microsoft.Extensions.Configuration.Json" Version="10.0.11" />
         <PackageReference Include="Npgsql.EntityFrameworkCore.PostgreSQL" Version="10.0.3" />
     </ItemGroup>
 
     <ItemGroup>
-        <PackageReference Include="GM.Messaging.Persistence" Version="1.2.0" />
+        <PackageReference Include="GM.Messaging.Persistence" Version="1.2.1" />
         <ProjectReference Include="..\GM.Messaging.Sample.ConsumerA.Domain\GM.Messaging.Sample.ConsumerA.Domain.csproj" />
     </ItemGroup>
 

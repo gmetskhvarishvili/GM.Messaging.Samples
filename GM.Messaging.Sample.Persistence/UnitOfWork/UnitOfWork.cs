@@ -7,7 +7,7 @@ using Microsoft.EntityFrameworkCore.Storage;
 
 namespace GM.Messaging.Sample.Persistence.UnitOfWork;
 
-public class UnitOfWork(
+public sealed class UnitOfWork(
     ApplicationDbContext context,
     IOutboxMessageRepository outboxMessageRepository) : IUnitOfWork
 {
@@ -83,5 +83,6 @@ public class UnitOfWork(
     {
         _transaction?.Dispose();
         context.Dispose();
+        GC.SuppressFinalize(this);
     }
 }

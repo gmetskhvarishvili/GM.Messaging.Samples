@@ -7,8 +7,14 @@ using Microsoft.EntityFrameworkCore;
 
 namespace GM.Messaging.Sample.ConsumerA.Persistence.Repositories;
 
+// CS9107: 'context' is forwarded to GenericRepository's base constructor and also read directly
+// below for the IInboxStore<T> members the base type doesn't expose. Both refer to the same
+// DbContext instance, so there is no divergent-copy risk; the warning exists only because the
+// compiler cannot see across the assembly boundary into GenericRepository's own capture.
+#pragma warning disable CS9107
 public class InboxMessageRepository(ConsumerDbContext context)
     : GenericRepository<InboxMessage, ConsumerDbContext>(context), IInboxMessageRepository, IInboxStore<InboxMessage>
+#pragma warning restore CS9107
 {
     Task<bool> IInboxStore<InboxMessage>.ExistsAsync(Guid eventId, string consumerName, CancellationToken cancellationToken) =>
         context.Set<InboxMessage>().AnyAsync(m => m.EventId == eventId && m.ConsumerName == consumerName, cancellationToken);

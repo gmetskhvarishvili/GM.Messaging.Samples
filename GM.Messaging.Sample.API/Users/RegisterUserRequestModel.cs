@@ -4,7 +4,7 @@ namespace GM.Messaging.Sample.API.Users;
 
 public class RegisterUserRequestModel
 {
-    public Guid UserId { get; set; }
+    public required Guid UserId { get; set; }
     public string? Email { get; set; }
     public string? Name { get; set; }
 }
