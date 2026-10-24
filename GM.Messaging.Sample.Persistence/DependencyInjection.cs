@@ -22,7 +22,7 @@ public static class DependencyInjection
                 {
                     o.UseQuerySplittingBehavior(QuerySplittingBehavior.SplitQuery);
                     o.CommandTimeout(60);
-                });
+                }).UseSnakeCaseNamingConvention();
         });
 
         services.AddTransient<OutboxMessageRepository>();
