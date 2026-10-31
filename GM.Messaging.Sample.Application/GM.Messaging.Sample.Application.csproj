@@ -8,8 +8,8 @@
 
     <ItemGroup>
         <PackageReference Include="FluentValidation" Version="12.1.1" />
-        <PackageReference Include="GM.API.Application" Version="1.4.0" />
-        <PackageReference Include="GM.Mediator" Version="1.3.5" />
+        <PackageReference Include="GM.API.Application" Version="2.0.0" />
+        <PackageReference Include="GM.Mediator" Version="2.0.0" />
     </ItemGroup>
 
     <ItemGroup>

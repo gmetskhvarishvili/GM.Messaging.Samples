@@ -7,8 +7,8 @@
     </PropertyGroup>
 
     <ItemGroup>
-        <PackageReference Include="GM.API" Version="1.4.0" />
-        <PackageReference Include="GM.API.Application" Version="1.4.0" />
+        <PackageReference Include="GM.API" Version="2.0.0" />
+        <PackageReference Include="GM.API.Application" Version="2.0.0" />
         <PackageReference Include="GM.EntityFramework.Persistence" Version="2.0.0" />
         <PackageReference Include="Microsoft.EntityFrameworkCore.Design" Version="10.0.10">
             <PrivateAssets>all</PrivateAssets>
