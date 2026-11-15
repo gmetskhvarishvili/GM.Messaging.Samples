@@ -1,4 +1,4 @@
-using GM.Messaging.Persistence.Outbox;
+using GM.Messaging;
 using GM.Messaging.Sample.Domain.BoundedContext.MessagingBoundedContext.OutboxMessageAggregate;
 using GM.Messaging.Sample.Domain.BoundedContext.MessagingBoundedContext.OutboxMessageAggregate.Interfaces;
 using GM.Messaging.Sample.Domain.SeedWork;
@@ -12,7 +12,7 @@ namespace GM.Messaging.Sample.Persistence;
 
 public static class DependencyInjection
 {
-    public static IServiceCollection AddPersistence(this IServiceCollection services, IConfiguration configuration)
+    public static IServiceCollection AddPersistence(this IServiceCollection services, IConfiguration configuration, bool runOutboxRelay = false)
     {
         // shared service caching and is discouraged unless you inject custom EF services.
         services.AddDbContextPool<ApplicationDbContext>(options =>
@@ -25,10 +25,15 @@ public static class DependencyInjection
                 }).UseSnakeCaseNamingConvention();
         });
 
-        services.AddTransient<OutboxMessageRepository>();
-        services.AddTransient<IOutboxMessageRepository>(sp => sp.GetRequiredService<OutboxMessageRepository>());
-        services.AddTransient<IOutboxDbContext<OutboxMessage>>(sp => sp.GetRequiredService<OutboxMessageRepository>());
+        services.AddTransient<IOutboxMessageRepository, OutboxMessageRepository>();
         services.AddTransient<IUnitOfWork, UnitOfWork.UnitOfWork>();
+
+        // Only the process that relays the outbox (the producer worker) passes true; the API must not,
+        // or two pollers would read the same outbox table and publish messages twice.
+        if (runOutboxRelay)
+        {
+            services.AddGMOutboxRelay<OutboxMessage, ApplicationDbContext>();
+        }
 
         return services;
     }

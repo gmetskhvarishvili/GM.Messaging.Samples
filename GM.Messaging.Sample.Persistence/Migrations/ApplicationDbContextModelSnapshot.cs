@@ -168,7 +168,7 @@ namespace GM.Messaging.Sample.Persistence.Migrations
                     b.HasIndex("UserId")
                         .HasDatabaseName("ix_outbox_messages_user_id");
 
-                    b.ToTable("outbox_messages", "outbox_messages");
+                    b.ToTable("outbox_messages", "messaging");
                 });
 #pragma warning restore 612, 618
         }

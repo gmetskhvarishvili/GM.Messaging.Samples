@@ -1,5 +1,4 @@
 using GM.Messaging.Persistence;
-using GM.Messaging.Persistence.Inbox;
 using GM.Messaging.Sample.ConsumerB.Domain.BoundedContext.MessagingBoundedContext.InboxMessageAggregate;
 using GM.Messaging.Sample.ConsumerB.Domain.BoundedContext.MessagingBoundedContext.InboxMessageAggregate.Interfaces;
 using GM.Messaging.Sample.ConsumerB.Domain.SeedWork;
@@ -25,11 +24,9 @@ public static class DependencyInjection
                 }).UseSnakeCaseNamingConvention();
         });
 
-        services.AddTransient<InboxMessageRepository>();
         services.AddTransient<IInboxMessageRepository, InboxMessageRepository>();
-        services.AddTransient<IInboxStore<InboxMessage>, InboxMessageRepository>();
         services.AddTransient<IConsumerUnitOfWork, UnitOfWork.ConsumerUnitOfWork>();
-        services.AddGMInboxProcessor<InboxMessage>();
+        services.AddGMInbox<InboxMessage, ConsumerDbContext>();
 
         return services;
     }
