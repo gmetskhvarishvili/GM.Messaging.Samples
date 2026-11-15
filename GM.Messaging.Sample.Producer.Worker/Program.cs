@@ -1,15 +1,12 @@
-using GM.Messaging.Sample.Domain.BoundedContext.MessagingBoundedContext.OutboxMessageAggregate;
 using GM.Messaging.Sample.Producer.Infrastructure;
 using GM.Messaging.Sample.Persistence;
 using GM.Messaging.Sample.Persistence.Context;
-using GM.Messaging.Workers;
 using Microsoft.EntityFrameworkCore;
 
 var builder = Host.CreateApplicationBuilder(args);
 
 builder.Services.AddInfrastructure(builder.Configuration);
-builder.Services.AddPersistence(builder.Configuration);
-builder.Services.AddHostedService<OutboxRelayWorker<OutboxMessage>>();
+builder.Services.AddPersistence(builder.Configuration, runOutboxRelay: true);
 
 var app = builder.Build();
 
