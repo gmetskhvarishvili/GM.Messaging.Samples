@@ -43,6 +43,28 @@ Only the published **GM.*** packages are referenced — no project references in
 - **CQRS + validation** — mediator commands (`CreateOrder`, `ProcessPayment`, `RegisterUser`,
   `UpdateInventory`) with FluentValidation.
 
+## How GM.Messaging is wired
+
+The repositories are plain `GenericRepository` classes. GM.Messaging's built-in EF Core stores read
+and write the outbox and inbox tables directly through each service's `DbContext`.
+
+```csharp
+// Producer: GM.Messaging.Sample.Persistence/DependencyInjection.cs
+services.AddTransient<IOutboxMessageRepository, OutboxMessageRepository>();
+if (runOutboxRelay)
+    services.AddGMOutboxRelay<OutboxMessage, ApplicationDbContext>();
+
+// Only the producer worker turns the relay on; the API shares AddPersistence but never relays.
+builder.Services.AddPersistence(builder.Configuration, runOutboxRelay: true);
+
+// Consumers: GM.Messaging.Sample.ConsumerA/B.Persistence/DependencyInjection.cs
+services.AddTransient<IInboxMessageRepository, InboxMessageRepository>();
+services.AddGMInbox<InboxMessage, ConsumerDbContext>();
+```
+
+The `outbox_messages` and `inbox_messages` tables live in a shared `messaging` schema. Each worker
+applies pending migrations when it starts.
+
 ## Requirements
 
 - [.NET 10 SDK](https://dotnet.microsoft.com/download)
