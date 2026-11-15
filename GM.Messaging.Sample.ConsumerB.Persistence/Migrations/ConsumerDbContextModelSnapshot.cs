@@ -166,7 +166,7 @@ namespace GM.Messaging.Sample.ConsumerB.Persistence.Migrations
                     b.HasIndex("UserId")
                         .HasDatabaseName("ix_inbox_messages_user_id");
 
-                    b.ToTable("inbox_messages", "inbox_messages");
+                    b.ToTable("inbox_messages", "messaging");
                 });
 #pragma warning restore 612, 618
         }

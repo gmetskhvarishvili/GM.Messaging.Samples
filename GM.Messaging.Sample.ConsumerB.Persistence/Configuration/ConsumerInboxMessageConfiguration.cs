@@ -4,4 +4,4 @@ using GM.Messaging.Sample.ConsumerB.Persistence.Context;
 
 namespace GM.Messaging.Sample.ConsumerB.Persistence.Configuration;
 
-public class ConsumerInboxMessageConfiguration() : InboxMessageConfiguration<InboxMessage>("inbox_messages");
+public class ConsumerInboxMessageConfiguration() : InboxMessageConfiguration<InboxMessage>("messaging");
