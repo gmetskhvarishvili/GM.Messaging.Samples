@@ -2,6 +2,7 @@ using GM.Messaging.Domain.Events;
 
 namespace GM.Messaging.Sample.Domain.Events.Users;
 
+[IntegrationEventName("users.user-registered")]
 public sealed record UserRegisteredIntegrationEvent : IntegrationEvent
 {
     public UserRegisteredIntegrationEvent(Guid? userId, string email, string name)

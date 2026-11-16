@@ -5,7 +5,11 @@ using Microsoft.EntityFrameworkCore;
 
 var builder = Host.CreateApplicationBuilder(args);
 
-builder.Services.AddInfrastructure(builder.Configuration);
+// Handlers take ConsumerDbContext as well as IInboxProcessor. Wolverine can't build a DbContext in its
+// generated code, so it takes it from the message's scope, as GM.Messaging does for IInboxProcessor:
+// both then share one instance, and a handler's changes commit with the inbox row.
+builder.Services.AddInfrastructure(builder.Configuration, wolverine =>
+    wolverine.CodeGeneration.AlwaysUseServiceLocationFor<ConsumerDbContext>());
 builder.Services.AddPersistence(builder.Configuration);
 
 var app = builder.Build();

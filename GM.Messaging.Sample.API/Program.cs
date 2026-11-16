@@ -1,4 +1,8 @@
 ﻿using GM.API.Startup;
+using GM.HealthChecks.EntityFramework;
+using GM.HealthChecks.Messaging;
+using GM.Messaging.Sample.Common.Telemetry;
+using OpenTelemetry.Trace;
 using GM.Messaging.Sample.Persistence;
 using GM.Messaging.Sample.Persistence.Context;
 using Microsoft.EntityFrameworkCore;
@@ -11,6 +15,16 @@ builder.Services.ConfigureGMServices(
     "SwaggerDocOptions");
 
 builder.Services.AddPersistence(builder.Configuration);
+
+// GM.API maps /health/live, /health/ready and /health/startup. Readiness also checks the database, and
+// the outbox backlog (pending messages, the oldest one's age, dead letters) reports Degraded when the
+// relay falls behind or gives up on messages.
+builder.Services.AddHealthChecks()
+    .AddGMDatabaseCheck<ApplicationDbContext>()
+    .AddGMMessagingBacklogCheck(backlog => backlog.MaxPendingAge = TimeSpan.FromMinutes(2));
+
+// The request's trace continues through the outbox: the relay publishes each event in it.
+builder.Services.AddSampleTelemetry(builder.Configuration, tracing => tracing.AddAspNetCoreInstrumentation());
 
 var app = builder.Build();
 

@@ -1,17 +1,16 @@
 using GM.Messaging.Persistence.Inbox;
+using GM.Messaging.Sample.ConsumerA.Domain.BoundedContext.ActivityBoundedContext;
+using GM.Messaging.Sample.ConsumerA.Persistence.Context;
 using GM.Messaging.Sample.Domain.Events.Payments;
-using Microsoft.Extensions.Logging;
 
 namespace GM.Messaging.Sample.ConsumerA.Worker.Handlers;
 
-public class PaymentProcessedHandler(IInboxProcessor inbox, ILogger<PaymentProcessedHandler> logger)
+public class PaymentProcessedHandler
 {
-    public Task Handle(PaymentProcessedIntegrationEvent message, CancellationToken ct) =>
-        inbox.ProcessAsync(message, "ConsumerA", () =>
+    public static Task Handle(PaymentProcessedIntegrationEvent message, IInboxProcessor inbox, ConsumerDbContext db, CancellationToken ct) =>
+        inbox.ProcessAsync(message, () =>
         {
-            logger.LogInformation(
-                "[ConsumerA] Payment processed — PaymentId: {PaymentId}, OrderId: {OrderId}, Amount: {Amount}, Status: {Status}",
-                message.PaymentId, message.OrderId, message.Amount, message.Status);
+            db.Add(CustomerActivity.Record(message.EventId, message.UserId, $"payment-{message.Status.ToLowerInvariant()}", message.PaymentId.ToString(), message.Amount, message.OccurredAtUtc));
             return Task.CompletedTask;
         }, ct);
 }

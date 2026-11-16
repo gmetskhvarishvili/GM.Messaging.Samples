@@ -118,6 +118,105 @@ namespace GM.Messaging.Sample.ConsumerB.Persistence.Migrations
                     b.ToTable("DomainEvents", "domainEvents");
                 });
 
+            modelBuilder.Entity("GM.Messaging.Sample.ConsumerB.Domain.BoundedContext.FulfilmentBoundedContext.OrderTimelineEntry", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid")
+                        .HasColumnName("id");
+
+                    b.Property<decimal>("Amount")
+                        .HasPrecision(18, 2)
+                        .HasColumnType("numeric(18,2)")
+                        .HasColumnName("amount");
+
+                    b.Property<Guid>("EventId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("event_id");
+
+                    b.Property<string>("Kind")
+                        .IsRequired()
+                        .HasMaxLength(50)
+                        .HasColumnType("character varying(50)")
+                        .HasColumnName("kind");
+
+                    b.Property<Guid>("OrderId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("order_id");
+
+                    b.Property<DateTime>("RaisedAtUtc")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("raised_at_utc");
+
+                    b.Property<DateTime>("RecordedAtUtc")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("recorded_at_utc");
+
+                    b.HasKey("Id")
+                        .HasName("pk_order_timeline");
+
+                    b.HasIndex("EventId")
+                        .IsUnique()
+                        .HasDatabaseName("ix_order_timeline_event_id");
+
+                    b.HasIndex("OrderId", "RecordedAtUtc")
+                        .HasDatabaseName("ix_order_timeline_order_id_recorded_at_utc");
+
+                    b.ToTable("order_timeline", "application");
+                });
+
+            modelBuilder.Entity("GM.Messaging.Sample.ConsumerB.Domain.BoundedContext.FulfilmentBoundedContext.StockLevel", b =>
+                {
+                    b.Property<Guid>("ProductId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("product_id");
+
+                    b.Property<string>("WarehouseCode")
+                        .HasMaxLength(50)
+                        .HasColumnType("character varying(50)")
+                        .HasColumnName("warehouse_code");
+
+                    b.Property<int>("Quantity")
+                        .HasColumnType("integer")
+                        .HasColumnName("quantity");
+
+                    b.Property<DateTime>("UpdatedAtUtc")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("updated_at_utc");
+
+                    b.HasKey("ProductId", "WarehouseCode")
+                        .HasName("pk_stock_levels");
+
+                    b.ToTable("stock_levels", "application");
+                });
+
+            modelBuilder.Entity("GM.Messaging.Sample.ConsumerB.Domain.BoundedContext.FulfilmentBoundedContext.WelcomeEmail", b =>
+                {
+                    b.Property<Guid>("EventId")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid")
+                        .HasColumnName("event_id");
+
+                    b.Property<string>("Email")
+                        .IsRequired()
+                        .HasMaxLength(320)
+                        .HasColumnType("character varying(320)")
+                        .HasColumnName("email");
+
+                    b.Property<DateTime>("SentAtUtc")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("sent_at_utc");
+
+                    b.Property<Guid?>("UserId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("user_id");
+
+                    b.HasKey("EventId")
+                        .HasName("pk_welcome_emails");
+
+                    b.ToTable("welcome_emails", "application");
+                });
+
             modelBuilder.Entity("GM.Messaging.Sample.ConsumerB.Domain.BoundedContext.MessagingBoundedContext.InboxMessageAggregate.InboxMessage", b =>
                 {
                     b.Property<Guid>("EventId")
@@ -148,6 +247,12 @@ namespace GM.Messaging.Sample.ConsumerB.Persistence.Migrations
                         .HasMaxLength(500)
                         .HasColumnType("character varying(500)")
                         .HasColumnName("event_type");
+
+                    b.Property<int>("EventVersion")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("integer")
+                        .HasDefaultValue(1)
+                        .HasColumnName("event_version");
 
                     b.Property<bool>("Ingested")
                         .HasColumnType("boolean")

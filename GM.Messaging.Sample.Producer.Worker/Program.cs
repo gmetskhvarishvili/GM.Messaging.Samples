@@ -1,9 +1,14 @@
+using GM.Messaging.Sample.Domain.Events;
 using GM.Messaging.Sample.Producer.Infrastructure;
 using GM.Messaging.Sample.Persistence;
 using GM.Messaging.Sample.Persistence.Context;
 using Microsoft.EntityFrameworkCore;
 
 var builder = Host.CreateApplicationBuilder(args);
+
+// Upcasters for events whose payload changed (InventoryUpdated v1 → v2), so the relay can still publish
+// rows written before the change.
+SampleEventVersions.Register();
 
 builder.Services.AddInfrastructure(builder.Configuration);
 builder.Services.AddPersistence(builder.Configuration, runOutboxRelay: true);

@@ -1,17 +1,22 @@
 using GM.Messaging.Persistence.Inbox;
+using GM.Messaging.Sample.ConsumerB.Domain.BoundedContext.FulfilmentBoundedContext;
+using GM.Messaging.Sample.ConsumerB.Persistence.Context;
 using GM.Messaging.Sample.Domain.Events.Inventory;
-using Microsoft.Extensions.Logging;
+using Microsoft.EntityFrameworkCore;
 
 namespace GM.Messaging.Sample.ConsumerB.Worker.Handlers;
 
-public class InventoryUpdatedHandler(IInboxProcessor inbox, ILogger<InventoryUpdatedHandler> logger)
+public class InventoryUpdatedHandler
 {
-    public Task Handle(InventoryUpdatedIntegrationEvent message, CancellationToken ct) =>
-        inbox.ProcessAsync(message, "ConsumerB", () =>
+    // InventoryUpdated is at version 2 (WarehouseCode); the producer's relay upcasts any version-1 rows.
+    public static Task Handle(InventoryUpdatedIntegrationEvent message, IInboxProcessor inbox, ConsumerDbContext db, CancellationToken ct) =>
+        inbox.ProcessAsync(message, async () =>
         {
-            logger.LogInformation(
-                "[ConsumerB] Inventory updated — ProductId: {ProductId}, Warehouse: {Warehouse}, Delta: {Delta}, New Qty: {NewQty}",
-                message.ProductId, message.Warehouse, message.QuantityDelta, message.NewQuantity);
-            return Task.CompletedTask;
+            var level = await db.Set<StockLevel>().FirstOrDefaultAsync(
+                s => s.ProductId == message.ProductId && s.WarehouseCode == message.WarehouseCode, ct);
+            if (level is null)
+                db.Add(StockLevel.Create(message.ProductId, message.WarehouseCode, message.NewQuantity));
+            else
+                level.Set(message.NewQuantity);
         }, ct);
 }

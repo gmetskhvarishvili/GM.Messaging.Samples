@@ -118,6 +118,55 @@ namespace GM.Messaging.Sample.ConsumerA.Persistence.Migrations
                     b.ToTable("DomainEvents", "domainEvents");
                 });
 
+            modelBuilder.Entity("GM.Messaging.Sample.ConsumerA.Domain.BoundedContext.ActivityBoundedContext.CustomerActivity", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid")
+                        .HasColumnName("id");
+
+                    b.Property<decimal?>("Amount")
+                        .HasPrecision(18, 2)
+                        .HasColumnType("numeric(18,2)")
+                        .HasColumnName("amount");
+
+                    b.Property<Guid?>("CustomerId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("customer_id");
+
+                    b.Property<Guid>("EventId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("event_id");
+
+                    b.Property<string>("Kind")
+                        .IsRequired()
+                        .HasMaxLength(50)
+                        .HasColumnType("character varying(50)")
+                        .HasColumnName("kind");
+
+                    b.Property<DateTime>("OccurredAtUtc")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("occurred_at_utc");
+
+                    b.Property<string>("Reference")
+                        .IsRequired()
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)")
+                        .HasColumnName("reference");
+
+                    b.HasKey("Id")
+                        .HasName("pk_customer_activities");
+
+                    b.HasIndex("CustomerId")
+                        .HasDatabaseName("ix_customer_activities_customer_id");
+
+                    b.HasIndex("EventId")
+                        .IsUnique()
+                        .HasDatabaseName("ix_customer_activities_event_id");
+
+                    b.ToTable("customer_activities", "application");
+                });
+
             modelBuilder.Entity("GM.Messaging.Sample.ConsumerA.Domain.BoundedContext.MessagingBoundedContext.InboxMessageAggregate.InboxMessage", b =>
                 {
                     b.Property<Guid>("EventId")
@@ -148,6 +197,12 @@ namespace GM.Messaging.Sample.ConsumerA.Persistence.Migrations
                         .HasMaxLength(500)
                         .HasColumnType("character varying(500)")
                         .HasColumnName("event_type");
+
+                    b.Property<int>("EventVersion")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("integer")
+                        .HasDefaultValue(1)
+                        .HasColumnName("event_version");
 
                     b.Property<bool>("Ingested")
                         .HasColumnType("boolean")
