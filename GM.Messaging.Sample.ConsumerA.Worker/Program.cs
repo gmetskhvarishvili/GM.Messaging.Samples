@@ -1,3 +1,4 @@
+using GM.Messaging.Sample.ConsumerA.Worker.Handlers;
 using GM.Messaging.Sample.Common.Admin;
 using GM.HealthChecks;
 using GM.HealthChecks.EntityFramework;
@@ -25,10 +26,20 @@ builder.Services.AddGMHealthChecks()
 // behind the messaging-admin policy (an X-Admin-Key header in this sample).
 builder.Services.AddSampleMessagingAdmin(builder.Configuration);
 
+// The sample's stand-in for deploying a fix: once switched on, ConsumerA books orders in XXX, so replaying the
+// dead-lettered one succeeds (the recovery CI walks through).
+builder.Services.AddSingleton<CurrencyPolicy>();
+
 var app = builder.Build();
 
 app.MapGMHealthChecks();
 app.MapSampleMessagingAdmin();
+app.MapPost("/admin/sample/accept-failing-currency", (CurrencyPolicy currencies) =>
+    {
+        currencies.AcceptFailingCurrency();
+        return Results.NoContent();
+    })
+    .RequireAuthorization(SampleMessagingAdmin.Policy);
 
 using (var scope = app.Services.CreateScope())
 {

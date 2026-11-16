@@ -203,6 +203,71 @@ jobs:
           # Every worker's readiness includes its backlog check.
           for port in 8081 8082 8083 8084; do curl -s "http://localhost:$port/health/ready" | grep -q 'messaging-backlog'; done
 
+      - name: Recovery — fix ConsumerA, replay its dead letter, and it's handled once
+        env:
+          ADMIN_KEY: sample-admin-key
+        run: |
+          set -e
+          q() { docker compose exec -T postgres psql -U postgres -d "$1" -tAc "$2"; }
+          admin() { curl -sf -H "X-Admin-Key: $ADMIN_KEY" "$@"; }
+          dead_before=$(admin http://localhost:8082/admin/messaging/broker/dead-letters | jq '.messages')
+          [ "$dead_before" -ge 1 ]
+          # "Deploy the fix": ConsumerA now accepts orders in XXX.
+          admin -X POST http://localhost:8081/admin/sample/accept-failing-currency
+          # Replay the dead-lettered order to ConsumerA's queue (ConsumerB's admin endpoints serve the shared dead-letter queue).
+          admin -X POST "http://localhost:8082/admin/messaging/broker/dead-letters/replay?queue=gm.consumer-a.orders" | jq -e '.transferred == 1'
+          for i in $(seq 1 30); do
+            [ "$(q messaging_consumer_a "select count(*) from application.customer_activities")" = "5" ] && break
+            [ "$i" = 30 ] && { echo "The replayed order wasn't booked"; docker compose logs --tail 60 consumer-a; exit 1; }
+            sleep 2
+          done
+          # Its inbox row is processed now (no longer dead-lettered), and the dead-letter queue is one shorter.
+          [ "$(q messaging_consumer_a "select count(*) from messaging.inbox_messages where error like '%XXX%' and processed_at_utc is not null and dead_lettered_at_utc is null")" = "1" ]
+          [ "$(admin http://localhost:8082/admin/messaging/broker/dead-letters | jq '.messages')" = "$((dead_before - 1))" ]
+
+      - name: Unrouted — a message no queue is bound for is kept, then moved once one exists
+        env:
+          ADMIN_KEY: sample-admin-key
+        run: |
+          set -e
+          mq() { curl -sf -u gm-admin:gm-admin-secret -H 'content-type: application/json' "$@"; }
+          admin() { curl -sf -H "X-Admin-Key: $ADMIN_KEY" "$@"; }
+          # A new kind of event goes out before any consumer for it exists: RabbitMQ hands it to gm.unrouted.
+          mq -X POST http://localhost:15672/api/exchanges/%2F/gm.events/publish \
+            -d '{"properties":{"content_type":"application/json"},"routing_key":"returns.requested","payload":"{\"ReturnId\":\"r-1\"}","payload_encoding":"string"}' | jq -e '.routed == true'
+          for i in $(seq 1 15); do [ "$(admin http://localhost:8082/admin/messaging/broker/unrouted | jq '.messages')" = "1" ] && break; sleep 1; done
+          admin "http://localhost:8082/admin/messaging/broker/unrouted/messages" | jq -e '.[0].routingKey == "returns.requested"'
+          # The returns consumer's queue appears; moving the kept message delivers it there.
+          mq -X PUT http://localhost:15672/api/queues/%2F/gm.returns -d '{"durable":true}' > /dev/null
+          mq -X POST http://localhost:15672/api/bindings/%2F/e/gm.events/q/gm.returns -d '{"routing_key":"returns.#"}' > /dev/null
+          admin -X POST "http://localhost:8082/admin/messaging/broker/unrouted/move?exchange=gm.events" | jq -e '.transferred == 1'
+          [ "$(admin http://localhost:8082/admin/messaging/broker/unrouted | jq '.messages')" = "0" ]
+          for i in $(seq 1 15); do [ "$(mq http://localhost:15672/api/queues/%2F/gm.returns | jq '.messages')" = "1" ] && exit 0; sleep 1; done
+          echo "The moved message didn't reach gm.returns"; exit 1
+
+      - name: An old producer's version-1 event is upcast on the wire
+        run: |
+          set -e
+          q() { docker compose exec -T postgres psql -U postgres -d "$1" -tAc "$2"; }
+          # A producer still on InventoryUpdated v1 (Warehouse, not WarehouseCode) publishes straight to RabbitMQ, with
+          # its version in the gm-event-version header; ConsumerB runs the upcaster before handling it.
+          type=GM.Messaging.Sample.Domain.Events.Inventory.InventoryUpdatedIntegrationEvent
+          event=$(cat /proc/sys/kernel/random/uuid)
+          payload=$(jq -cn --arg e "$event" --arg p "$(cat /proc/sys/kernel/random/uuid)" '{EventId:$e,OccurredAtUtc:"2026-11-01T10:00:00Z",ProductId:$p,Warehouse:"LEGACY-1",QuantityDelta:2,NewQuantity:7} | tostring')
+          body=$(jq -cn --arg t "$type" --arg id "$event" --argjson payload "$payload" \
+            '{properties:{type:$t,message_id:$id,content_type:"application/json",headers:{"message-type":$t,"gm-event-version":"1","content-type":"application/json"}},routing_key:"inventory.updated",payload:$payload,payload_encoding:"string"}')
+          curl -sf -u gm-admin:gm-admin-secret -H 'content-type: application/json' -X POST http://localhost:15672/api/exchanges/%2F/gm.events/publish -d "$body" | jq -e '.routed == true'
+          for i in $(seq 1 30); do
+            [ "$(q messaging_consumer_b "select quantity from application.stock_levels where warehouse_code = 'LEGACY-1'")" = "7" ] && exit 0
+            sleep 2
+          done
+          echo "ConsumerB didn't handle the version-1 event"; docker compose logs --tail 60 consumer-b; exit 1
+
+      - name: Stack tests (GM.Testing.Messaging.Integration against the running stack)
+        env:
+          SAMPLE_STACK: "true"
+        run: dotnet test tests/GM.Messaging.Sample.StackTests -c Release --logger "console;verbosity=normal"
+
       - name: Logs
         if: always()
         run: docker compose logs --tail 200

@@ -28,7 +28,8 @@ GM.Messaging.Samples/
 ├── ConsumerA (Domain / Infrastructure / Persistence / Worker)   # customer activity via ProcessAsync
 ├── ConsumerB (Domain / Infrastructure / Persistence / Worker)   # order timeline, stock, inbox-worker emails
 ├── tests/
-│   └── GM.Messaging.Sample.Tests            # validator, event and outbox unit tests
+│   ├── GM.Messaging.Sample.Tests            # validator, event and outbox unit tests
+│   └── GM.Messaging.Sample.StackTests       # GM.Testing.Messaging.Integration checks against the running stack
 ├── docs/                                    # architecture and operations
 ├── deploy/                                  # OpenTelemetry collector and Prometheus config
 └── Dockerfile, docker-compose.yml           # the whole stack, with traces and metrics
@@ -70,7 +71,7 @@ Every GM.Messaging feature, each where a real service would use it:
 | **Ordering keys** and a **sequential** consumer queue | Order and payment events keyed by order; ConsumerB's `order-timeline` queue |
 | **Event versions** with an upcaster, for stored rows and for events on the wire | `InventoryUpdated` v2 (`Warehouse` → `WarehouseCode`), registered with `AddGMIntegrationEvents` |
 | **Transactional inbox**: the handler's changes and the inbox row commit together | ConsumerA (`customer_activities`), ConsumerB (`order_timeline`, `stock_levels`) via `ProcessAsync` |
-| **Retried failures** recorded on the inbox row, then the broker's dead-letter queue | ConsumerA rejects orders in `XXX` |
+| **Retried failures** recorded on the inbox row, then the broker's dead-letter queue | ConsumerA rejects orders in `XXX`; CI fixes the cause, replays the dead letter and checks it was handled |
 | **Inbox worker** for slow work, with backoff and dead-lettering | ConsumerB's welcome emails (`IngestAsync` + `IInboxHandler`); `@bounce.test` addresses fail |
 | **Admin endpoints** for the outbox, inbox and broker queues, behind an authorization policy | `MapGMMessagingAdmin()` (GM.Messaging.AspNetCore) in every host under `/admin/messaging`; the `messaging-admin` policy takes an `X-Admin-Key` header here |
 | **No lost unrouted messages**: anything published with no queue bound is kept | The `gm.unrouted` queue; `POST /admin/messaging/broker/unrouted/move?exchange=gm.events` sends them back |
@@ -141,10 +142,19 @@ trace capture) and outbox serialization. CI's `compose` job also runs the whole 
 
 - each consumer handled every event once, and ConsumerB's timeline has an order before its payment;
 - the failing order was retried and reached the broker's dead-letter queue, and the bouncing email was dead-lettered in the inbox;
+- after the cause is fixed, replaying the dead-lettered order gets it handled, and an unrouted message is
+  moved to the queue created for it;
+- a version-1 `InventoryUpdated` published straight to RabbitMQ is upcast and handled;
 - a save in the API is published within seconds, although the relays poll every 30 s;
 - Prometheus shows both relays, every event published exactly once, and no inbox duplicates;
 - the admin endpoints refuse requests without the key, map what each host has, and with every host's
   health checks report the backlog; nothing went unrouted.
+
+Then `tests/GM.Messaging.Sample.StackTests` runs against the same stack (`SAMPLE_STACK=true`) with the
+GM.Testing.Messaging.Integration assertions. It checks that the outbox is drained, and that Ana's
+registration is stored encrypted and was handled by both consumers. It also checks that the bounce is
+dead-lettered in ConsumerB's inbox, the recovered order was handled, and nothing is left unrouted.
+Without `SAMPLE_STACK` these tests skip.
 
 ## Requirements
 
