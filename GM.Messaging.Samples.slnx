@@ -35,5 +35,6 @@
   </Folder>
   <Folder Name="/tests/">
     <Project Path="tests/GM.Messaging.Sample.Tests/GM.Messaging.Sample.Tests.csproj" />
+    <Project Path="tests/GM.Messaging.Sample.StackTests/GM.Messaging.Sample.StackTests.csproj" />
   </Folder>
 </Solution>

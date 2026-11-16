@@ -75,6 +75,20 @@ and `dryRun`; messages that don't match stay in place, in order. ConsumerA's inb
 is dead-lettered as well once the broker's last delivery fails, so its readiness reports the dead letter
 (Degraded). Replaying the message from the broker hands it to the handler again.
 
+### Recovering the XXX order, end to end
+
+CI walks through this after every run; you can do the same on a local stack:
+
+```bash
+# 1. Fix the cause. Here: tell ConsumerA to accept XXX (a stand-in for a deployed fix).
+curl -H "$ADMIN" -X POST http://localhost:8081/admin/sample/accept-failing-currency
+# 2. Replay the order from the broker's dead-letter queue to ConsumerA's queue.
+curl -H "$ADMIN" -X POST "http://localhost:8082/admin/messaging/broker/dead-letters/replay?queue=gm.consumer-a.orders"
+# 3. The handler runs again: the inbox row is processed (no longer dead-lettered), the activity is recorded,
+#    and the dead-letter queue is one message shorter.
+curl -H "$ADMIN" http://localhost:8081/admin/messaging/inbox/dead-letters
+```
+
 ## Unrouted messages
 
 Every exchange GM.Messaging declares has the alternate exchange `gm.unrouted`, so a message published
@@ -85,6 +99,16 @@ where no queue is bound for it (a consumer that hasn't started yet, a wrong rout
 curl -H "$ADMIN" http://localhost:8082/admin/messaging/broker/unrouted                                 # how many
 curl -H "$ADMIN" -X POST "http://localhost:8082/admin/messaging/broker/unrouted/move?exchange=gm.events" # publish them again
 ```
+
+CI shows this with a `returns.requested` event that nothing consumes yet: it lands in `gm.unrouted`, then
+a `gm.returns` queue bound to `returns.#` is created, and the move delivers it there.
+
+## Old event versions on the wire
+
+A producer that hasn't upgraded still publishes `InventoryUpdated` version 1 (`Warehouse`, no
+`WarehouseCode`) with the `gm-event-version: 1` header. ConsumerB upcasts it before the handler runs. CI
+publishes such a message straight to `gm.events` through the RabbitMQ management API and checks that
+the `LEGACY-1` warehouse's stock level is recorded.
 
 An existing RabbitMQ that already has the `gm.events` exchange without that argument refuses to redeclare
 it: delete the exchange once (the services recreate it), or set `Messaging:RabbitMq:UnroutedExchange` to `""`.

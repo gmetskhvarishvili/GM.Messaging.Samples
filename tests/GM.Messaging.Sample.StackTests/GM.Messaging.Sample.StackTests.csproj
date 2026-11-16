@@ -1,0 +1,32 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+    <!--
+      End-to-end checks against the running docker-compose stack, written with GM.Testing.Messaging.Integration.
+      They skip unless SAMPLE_STACK=true (CI's compose job sets it after driving the stack).
+    -->
+    <PropertyGroup>
+        <TargetFramework>net10.0</TargetFramework>
+        <ImplicitUsings>enable</ImplicitUsings>
+        <Nullable>enable</Nullable>
+        <IsPackable>false</IsPackable>
+        <NoWarn>$(NoWarn);CA1707</NoWarn>
+    </PropertyGroup>
+
+    <ItemGroup>
+        <PackageReference Include="Microsoft.NET.Test.Sdk" Version="18.9.0" />
+        <PackageReference Include="xunit" Version="2.9.3" />
+        <PackageReference Include="Xunit.SkippableFact" Version="1.5.85" />
+        <PackageReference Include="xunit.runner.visualstudio" Version="4.0.0">
+            <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
+            <PrivateAssets>all</PrivateAssets>
+        </PackageReference>
+        <PackageReference Include="GM.Testing.Messaging.Integration" Version="1.2.0" />
+    </ItemGroup>
+
+    <ItemGroup>
+        <ProjectReference Include="..\..\GM.Messaging.Sample.Persistence\GM.Messaging.Sample.Persistence.csproj" />
+        <ProjectReference Include="..\..\GM.Messaging.Sample.ConsumerA.Persistence\GM.Messaging.Sample.ConsumerA.Persistence.csproj" />
+        <ProjectReference Include="..\..\GM.Messaging.Sample.ConsumerB.Persistence\GM.Messaging.Sample.ConsumerB.Persistence.csproj" />
+    </ItemGroup>
+
+</Project>
