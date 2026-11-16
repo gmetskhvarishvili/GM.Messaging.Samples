@@ -1,0 +1,11 @@
+{
+  "profiles": {
+    "GM.Messaging.Sample.ConsumerA.Worker": {
+      "commandName": "Project",
+      "applicationUrl": "http://localhost:5082",
+      "environmentVariables": {
+        "DOTNET_ENVIRONMENT": "Development"
+      }
+    }
+  }
+}
