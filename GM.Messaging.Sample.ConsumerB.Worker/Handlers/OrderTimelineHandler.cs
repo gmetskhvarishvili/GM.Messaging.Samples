@@ -8,7 +8,8 @@ namespace GM.Messaging.Sample.ConsumerB.Worker.Handlers;
 
 // Order and payment events arrive on one sequential queue (appsettings: "Sequential": true), and the
 // producer's relay published them in order per order (their ordering key), so the timeline keeps it.
-public class OrderTimelineHandlers
+// (Wolverine discovers classes whose names end in "Handler" or "Consumer".)
+public class OrderTimelineHandler
 {
     public static Task Handle(OrderPlacedIntegrationEvent message, IInboxProcessor inbox, ConsumerDbContext db, CancellationToken ct) =>
         inbox.ProcessAsync(message, () =>
