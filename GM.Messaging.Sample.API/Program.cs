@@ -1,6 +1,7 @@
 ﻿using GM.API.Startup;
 using GM.HealthChecks.EntityFramework;
 using GM.HealthChecks.Messaging;
+using GM.Messaging.Sample.Common.Admin;
 using GM.Messaging.Sample.Common.Telemetry;
 using OpenTelemetry.Trace;
 using GM.Messaging.Sample.Persistence;
@@ -23,6 +24,10 @@ builder.Services.AddHealthChecks()
     .AddGMDatabaseCheck<ApplicationDbContext>()
     .AddGMMessagingBacklogCheck(backlog => backlog.MaxPendingAge = TimeSpan.FromMinutes(2));
 
+// The outbox admin endpoints (GM.Messaging.AspNetCore) under /admin/messaging/outbox, behind the
+// messaging-admin policy (an X-Admin-Key header in this sample).
+builder.Services.AddSampleMessagingAdmin(builder.Configuration);
+
 // The request's trace continues through the outbox: the relay publishes each event in it.
 builder.Services.AddSampleTelemetry(builder.Configuration, tracing => tracing.AddAspNetCoreInstrumentation());
 
@@ -32,6 +37,7 @@ app.UseRouting();
 app.UseAuthentication();
 app.UseAuthorization();
 app.UseGMServices();
+app.MapSampleMessagingAdmin();
 
 using (var scope = app.Services.CreateScope())
 {

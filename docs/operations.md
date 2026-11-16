@@ -11,13 +11,34 @@ docker compose up -d --build
 | http://localhost:8080/swagger | API |
 | http://localhost:8080/health/ready | API readiness: database + outbox backlog |
 | http://localhost:8081/health/ready, :8082, :8083 | Consumer A, consumer B, producer worker readiness: database, RabbitMQ, backlog |
-| http://localhost:8082/admin/... | ConsumerB's inbox and broker queue admin |
+| http://localhost:8080…8084/admin/messaging/... | GM.Messaging's admin endpoints on every host (outbox, inbox, broker queues) |
 | http://localhost:15672 | RabbitMQ management (guest/guest) |
 | http://localhost:16686 | Jaeger traces |
 | http://localhost:9090 | Prometheus metrics |
 
 `GM.Messaging.Sample.API/GM.Messaging.Sample.API.http` has a request for every endpoint, including the
 failure cases and the workers' admin endpoints.
+
+## Admin endpoints
+
+Every host calls `MapGMMessagingAdmin()` (GM.Messaging.AspNetCore), which maps endpoints under
+`/admin/messaging` for whatever that host registered:
+
+| Host | Endpoints |
+| --- | --- |
+| API (8080) | `outbox` |
+| Producer workers (8083, 8084) | `outbox`, `broker/dead-letters`, `broker/unrouted` |
+| ConsumerA (8081), ConsumerB (8082) | `inbox`, `broker/dead-letters`, `broker/unrouted` |
+
+They require the `messaging-admin` authorization policy. The sample has no identity provider, so that
+policy accepts an API key in the `X-Admin-Key` header (`Admin:ApiKey`; docker-compose sets
+`sample-admin-key`, appsettings has `local-dev-admin-key` for `dotnet run`). Without the key a request
+gets 401. In a real service, point the policy at your own authentication (JWT, mTLS, ...). The examples
+below use:
+
+```bash
+ADMIN="X-Admin-Key: sample-admin-key"
+```
 
 ## Dead letters
 
@@ -26,27 +47,27 @@ There are three places a message can end up after its last attempt, each with it
 **Outbox** (events the relay couldn't publish), through the API (`IOutboxAdministration`):
 
 ```bash
-curl http://localhost:8080/api/v1/admin/outbox                      # backlog
-curl http://localhost:8080/api/v1/admin/outbox/dead-letters         # what failed, and why
-curl -X POST http://localhost:8080/api/v1/admin/outbox/dead-letters/requeue   # retry all, after fixing the cause
+curl -H "$ADMIN" http://localhost:8080/admin/messaging/outbox                      # backlog
+curl -H "$ADMIN" http://localhost:8080/admin/messaging/outbox/dead-letters         # what failed, and why
+curl -H "$ADMIN" -X POST http://localhost:8080/admin/messaging/outbox/dead-letters/requeue   # retry all, after fixing the cause
 ```
 
 **Inbox** (events ConsumerB's inbox worker gave up on), through ConsumerB (`IInboxAdministration`):
 
 ```bash
-curl http://localhost:8082/admin/inbox                              # backlog
-curl http://localhost:8082/admin/inbox/dead-letters                 # what failed, and why
-curl -X POST http://localhost:8082/admin/inbox/dead-letters/requeue # retry all
+curl -H "$ADMIN" http://localhost:8082/admin/messaging/inbox                              # backlog
+curl -H "$ADMIN" http://localhost:8082/admin/messaging/inbox/dead-letters                 # what failed, and why
+curl -H "$ADMIN" -X POST http://localhost:8082/admin/messaging/inbox/dead-letters/requeue # retry all
 ```
 
 **The broker's dead-letter queue** `gm.dead-letters` (messages Wolverine moved there after a consumer's
 last retry, such as ConsumerA's XXX order), through ConsumerB (`IBrokerQueueAdministration`):
 
 ```bash
-curl http://localhost:8082/admin/broker/dead-letters                # how many
-curl http://localhost:8082/admin/broker/dead-letters/messages       # look without consuming: original queue, reason, body
-curl -X POST http://localhost:8082/admin/broker/dead-letters/replay # back to each message's original queue
-curl -X POST "http://localhost:8082/admin/broker/dead-letters/replay?queue=gm.consumer-a.orders&dryRun=true"  # only count
+curl -H "$ADMIN" http://localhost:8082/admin/messaging/broker/dead-letters                # how many
+curl -H "$ADMIN" http://localhost:8082/admin/messaging/broker/dead-letters/messages       # look without consuming: original queue, reason, body
+curl -H "$ADMIN" -X POST http://localhost:8082/admin/messaging/broker/dead-letters/replay # back to each message's original queue
+curl -H "$ADMIN" -X POST "http://localhost:8082/admin/messaging/broker/dead-letters/replay?queue=gm.consumer-a.orders&dryRun=true"  # only count
 ```
 
 The replay, move and messages endpoints take `type`, `queue` (the original queue), `routingKey`, `max`
@@ -61,8 +82,8 @@ where no queue is bound for it (a consumer that hasn't started yet, a wrong rout
 `gm.unrouted` queue instead of being dropped. Once the consumer's queue exists:
 
 ```bash
-curl http://localhost:8082/admin/broker/unrouted                                 # how many
-curl -X POST "http://localhost:8082/admin/broker/unrouted/move?exchange=gm.events" # publish them again
+curl -H "$ADMIN" http://localhost:8082/admin/messaging/broker/unrouted                                 # how many
+curl -H "$ADMIN" -X POST "http://localhost:8082/admin/messaging/broker/unrouted/move?exchange=gm.events" # publish them again
 ```
 
 An existing RabbitMQ that already has the `gm.events` exchange without that argument refuses to redeclare

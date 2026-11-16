@@ -1,3 +1,4 @@
+using GM.Messaging.Sample.Common.Admin;
 using GM.HealthChecks;
 using GM.HealthChecks.EntityFramework;
 using GM.HealthChecks.Messaging;
@@ -6,7 +7,6 @@ using GM.Messaging.Sample.ConsumerB.Domain.BoundedContext.MessagingBoundedContex
 using GM.Messaging.Sample.ConsumerB.Infrastructure;
 using GM.Messaging.Sample.ConsumerB.Persistence;
 using GM.Messaging.Sample.ConsumerB.Persistence.Context;
-using GM.Messaging.Sample.ConsumerB.Worker.Admin;
 using GM.Messaging.Sample.ConsumerB.Worker.InboxHandlers;
 using GM.Messaging.Sample.Domain.Events;
 using GM.Messaging.Sample.Domain.Events.Inventory;
@@ -43,10 +43,14 @@ builder.Services.AddGMHealthChecks()
         backlog.MaxDeadLettered = 10;
     });
 
+// GM.Messaging's admin endpoints under /admin/messaging (this host's outbox or inbox, and the broker queues),
+// behind the messaging-admin policy (an X-Admin-Key header in this sample).
+builder.Services.AddSampleMessagingAdmin(builder.Configuration);
+
 var app = builder.Build();
 
 app.MapGMHealthChecks();
-app.MapAdminEndpoints(builder.Configuration);
+app.MapSampleMessagingAdmin();
 
 using (var scope = app.Services.CreateScope())
 {
