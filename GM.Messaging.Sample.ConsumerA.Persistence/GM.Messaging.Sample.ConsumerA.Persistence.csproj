@@ -26,7 +26,7 @@
     </ItemGroup>
 
     <ItemGroup>
-        <PackageReference Include="GM.Messaging.Persistence" Version="1.3.1" />
+        <PackageReference Include="GM.Messaging.Persistence" Version="2.0.0" />
         <ProjectReference Include="..\GM.Messaging.Sample.ConsumerA.Domain\GM.Messaging.Sample.ConsumerA.Domain.csproj" />
     </ItemGroup>
 
