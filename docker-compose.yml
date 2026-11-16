@@ -1,18 +1,28 @@
-# The whole GM.Messaging sample: PostgreSQL, RabbitMQ, Jaeger, the API, the producer worker (outbox relay)
-# and two consumers.
+# The whole GM.Messaging sample: PostgreSQL, RabbitMQ, the observability stack (an OpenTelemetry collector,
+# Jaeger for traces, Prometheus for metrics), the API, the producer worker (outbox relay) and two consumers.
 #
-#   docker compose up -d --build                      # everything; API + Swagger on http://localhost:8080
-#   docker compose up -d postgres rabbitmq jaeger     # just the infrastructure, to `dotnet run` the projects
+#   docker compose up -d --build                                              # everything
+#   docker compose up -d --build --scale producer-worker=2                    # two relays (CI runs this)
+#   docker compose up -d postgres rabbitmq otel-collector jaeger prometheus   # just the infrastructure
 #
-# UIs: RabbitMQ management http://localhost:15672 (guest/guest), Jaeger http://localhost:16686 (search for
-# GM.Messaging.Sample.API: a request, the relay's publish and both consumers' handling are one trace).
+# UIs and endpoints:
+#   API + Swagger           http://localhost:8080
+#   RabbitMQ management     http://localhost:15672 (guest/guest)
+#   Jaeger                  http://localhost:16686 (a request, the relay's publish and both consumers' handling are one trace)
+#   Prometheus              http://localhost:9090  (try gm_messaging_outbox_published_total or gm_messaging_inbox_processed_total)
+#   Consumer A              http://localhost:8081/health/ready
+#   Consumer B              http://localhost:8082/health/ready, /admin/inbox, /admin/broker/dead-letters, /admin/broker/unrouted
+#   Producer worker(s)      http://localhost:8083/health/ready (and 8084 for the second replica)
 #
-# Each service applies its own migrations on startup and creates its database. The relay leases each
-# outbox message, so `docker compose up -d --scale producer-worker=2` is safe.
+# The API applies the application database's migrations; the producer worker waits for them. Each consumer
+# migrates its own database. Saves in the API wake the relays over RabbitMQ, so events are published at once
+# even though the relays only poll every 30 seconds.
 
 x-messaging: &messaging
   Messaging__RabbitMq__HostName: rabbitmq
-  OTEL_EXPORTER_OTLP_ENDPOINT: http://jaeger:4317
+  OTEL_EXPORTER_OTLP_ENDPOINT: http://otel-collector:4317
+  # Metrics every 5 s instead of every minute, so Prometheus (and CI) see them quickly.
+  OTEL_METRIC_EXPORT_INTERVAL: "5000"
 
 services:
   postgres:
@@ -43,6 +53,18 @@ services:
       timeout: 10s
       retries: 20
 
+  otel-collector:
+    image: otel/opentelemetry-collector-contrib:0.115.1
+    container_name: gm-messaging-otel-collector
+    command: ["--config=/etc/otelcol/config.yaml"]
+    volumes:
+      - ./deploy/otel-collector.yaml:/etc/otelcol/config.yaml:ro
+    ports:
+      - "4317:4317"
+      - "4318:4318"
+    depends_on:
+      - jaeger
+
   jaeger:
     image: jaegertracing/all-in-one:1.62.0
     container_name: gm-messaging-jaeger
@@ -50,7 +72,16 @@ services:
       COLLECTOR_OTLP_ENABLED: "true"
     ports:
       - "16686:16686"
-      - "4317:4317"
+
+  prometheus:
+    image: prom/prometheus:v3.0.1
+    container_name: gm-messaging-prometheus
+    volumes:
+      - ./deploy/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+    ports:
+      - "9090:9090"
+    depends_on:
+      - otel-collector
 
   api:
     build:
@@ -68,21 +99,28 @@ services:
     depends_on:
       postgres:
         condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
 
   producer-worker:
     build:
       context: .
       args:
         PROJECT: GM.Messaging.Sample.Producer.Worker
-    # No container_name, so it can run as several replicas (the relay leases messages).
+    # No container_name, so it can run as several replicas (the relay leases messages); a port range so
+    # each replica's health endpoint is reachable.
     environment:
       <<: *messaging
       ConnectionStrings__ApplicationDatabase: "Host=postgres;Port=5432;Database=messaging_api;Username=postgres;Password=123456"
+    ports:
+      - "8083-8084:8080"
     depends_on:
       postgres:
         condition: service_healthy
       rabbitmq:
         condition: service_healthy
+      api:
+        condition: service_started
 
   consumer-a:
     build:
@@ -93,6 +131,8 @@ services:
     environment:
       <<: *messaging
       ConnectionStrings__ApplicationDatabase: "Host=postgres;Port=5432;Database=messaging_consumer_a;Username=postgres;Password=123456"
+    ports:
+      - "8081:8080"
     depends_on:
       postgres:
         condition: service_healthy
@@ -108,6 +148,8 @@ services:
     environment:
       <<: *messaging
       ConnectionStrings__ApplicationDatabase: "Host=postgres;Port=5432;Database=messaging_consumer_b;Username=postgres;Password=123456"
+    ports:
+      - "8082:8080"
     depends_on:
       postgres:
         condition: service_healthy

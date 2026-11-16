@@ -1,27 +1,21 @@
-using GM.Messaging.Domain.Events;
-using GM.Messaging.Sample.Domain.Events.Inventory;
+using System.Text.Json.Nodes;
 
 namespace GM.Messaging.Sample.Domain.Events;
 
 /// <summary>
-/// Upcasters for events whose payload shape changed. Register them once at startup in every process
-/// that reads stored events (the producer worker's relay, and consumers' inbox workers).
+/// Upcasters for events whose payload shape changed. Every process that reads these events registers
+/// them with <c>AddGMIntegrationEvents</c>: the producer worker's relay (outbox rows written at an older
+/// version) and the consumers (events published by a producer that is still on the older version,
+/// recognised by the <c>gm-event-version</c> header).
 /// </summary>
 public static class SampleEventVersions
 {
-    private static int _registered;
-
-    public static void Register()
+    /// <summary>InventoryUpdated v1 → v2: <c>Warehouse</c> was renamed <c>WarehouseCode</c>.</summary>
+    public static JsonObject InventoryUpdatedV1ToV2(JsonObject v1)
     {
-        if (Interlocked.Exchange(ref _registered, 1) == 1)
-            return;
-
-        // InventoryUpdated v1 → v2: Warehouse was renamed WarehouseCode.
-        IntegrationEventSerializer.AddUpcaster<InventoryUpdatedIntegrationEvent>(fromVersion: 1, v1 =>
-        {
-            v1["WarehouseCode"] = v1["Warehouse"]?.DeepClone();
-            v1.Remove("Warehouse");
-            return v1;
-        });
+        ArgumentNullException.ThrowIfNull(v1);
+        v1["WarehouseCode"] = v1["Warehouse"]?.DeepClone();
+        v1.Remove("Warehouse");
+        return v1;
     }
 }
