@@ -16,8 +16,8 @@ public static class DependencyInjection
 {
     public static IServiceCollection AddPersistence(this IServiceCollection services, IConfiguration configuration, bool runOutboxRelay = false)
     {
-        // Pooled contexts; AddGMOutboxSignal adds the interceptor that wakes this process's relay as soon
-        // as a save adds outbox messages (a no-op in a process that doesn't run the relay).
+        // Pooled contexts; AddGMOutboxSignal adds the interceptor that wakes the relays as soon as a save
+        // adds outbox messages: this process's relay directly, relays in other processes over RabbitMQ.
         services.AddDbContextPool<ApplicationDbContext>((serviceProvider, options) =>
         {
             options.UseNpgsql(configuration.GetConnectionString("ApplicationDatabase"),
@@ -36,8 +36,12 @@ public static class DependencyInjection
         services.AddGMOutboxAdministration<OutboxMessage, ApplicationDbContext>();
 
         // The relay leases each message, so several relays are safe; the producer worker runs it here.
+        // A process that only saves outbox messages (the API) still wakes the relays: each save sends a
+        // tiny RabbitMQ message that makes every relay publish at once instead of at its next poll.
         if (runOutboxRelay)
             services.AddGMOutboxRelay<OutboxMessage, ApplicationDbContext>();
+        else
+            services.AddGMOutboxWakeUp(configuration);
 
         return services;
     }

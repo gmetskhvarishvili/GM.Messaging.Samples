@@ -44,7 +44,7 @@ public class OutboxMessageTests
     [Fact]
     public void InventoryUpdated_Version1Row_IsUpcastToWarehouseCode()
     {
-        SampleEventVersions.Register();
+        IntegrationEventSerializer.AddUpcaster<InventoryUpdatedIntegrationEvent>(1, SampleEventVersions.InventoryUpdatedV1ToV2);
 
         var evt = (InventoryUpdatedIntegrationEvent)IntegrationEventSerializer.Deserialize(
             """{"ProductId":"6b1d6c1e-3c39-4a7e-9a59-1a0f2a3b4c5d","Warehouse":"TBS-1","QuantityDelta":-2,"NewQuantity":8}""",

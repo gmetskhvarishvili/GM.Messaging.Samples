@@ -22,5 +22,6 @@ COPY --from=build /app/publish .
 # variables whose names aren't shell identifiers, such as ConnectionStrings__ApplicationDatabase).
 RUN ln -s "/app/$PROJECT" /app/entrypoint
 USER $APP_UID
-ENV ASPNETCORE_HTTP_PORTS=8080
+# Every host listens on 8080 in the container (the workers for their health and admin endpoints).
+ENV ASPNETCORE_URLS=http://+:8080
 ENTRYPOINT ["/app/entrypoint"]

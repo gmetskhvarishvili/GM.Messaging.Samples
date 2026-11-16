@@ -25,26 +25,31 @@ jobs:
       - name: Test
         run: dotnet test -c Release --no-build --verbosity normal
 
-  # The whole sample as docker-compose.yml runs it, driven through the API: events go outbox → relay →
-  # RabbitMQ → both consumers, and the checks read each consumer's database.
+  # The whole sample as docker-compose.yml runs it, with two relays, driven through the API: events go
+  # outbox → relay → RabbitMQ → both consumers, and the checks read each consumer's database, the
+  # workers' health and admin endpoints, and the metrics in Prometheus.
   compose:
     runs-on: ubuntu-latest
 
     steps:
       - uses: actions/checkout@v4
 
-      - name: Build and start the stack
-        run: docker compose up -d --build
+      - name: Build and start the stack with two relays
+        run: docker compose up -d --build --scale producer-worker=2
 
-      - name: Wait for the API and for the consumers' queues
+      - name: Wait for every service to be ready and for the consumers' queues
         run: |
+          ready() { curl -sf "http://localhost:$1/health/ready" >/dev/null; }
           for i in $(seq 1 90); do
-            curl -sf http://localhost:8080/health/ready >/dev/null \
+            ready 8080 && ready 8081 && ready 8082 && ready 8083 && ready 8084 \
               && [ "$(curl -s -u guest:guest http://localhost:15672/api/queues | jq '[.[] | select(.name | startswith("gm.consumer-"))] | length')" = "6" ] \
               && exit 0
             sleep 2
           done
-          docker compose ps; docker compose logs --tail 50; exit 1
+          docker compose ps
+          for port in 8080 8081 8082 8083 8084; do echo "== :$port/health/ready"; curl -s -w ' (HTTP %{http_code})\n' "http://localhost:$port/health/ready"; done
+          curl -s -u guest:guest http://localhost:15672/api/queues | jq -r '.[].name'
+          docker compose logs --tail 50; exit 1
 
       - name: Place an order, pay it, register users and change stock
         run: |
@@ -62,7 +67,8 @@ jobs:
             -d "{\"userId\":\"$(cat /proc/sys/kernel/random/uuid)\",\"email\":\"nobody@bounce.test\",\"name\":\"Bounce\"}"
           curl -sf -H 'Content-Type: application/json' "$api/inventory" \
             -d "{\"productId\":\"$(cat /proc/sys/kernel/random/uuid)\",\"warehouse\":\"TBS-1\",\"quantityDelta\":5,\"newQuantity\":5}"
-          # ConsumerA fails orders in XXX on purpose: Wolverine retries, the inbox records each attempt.
+          # ConsumerA fails orders in XXX on purpose: Wolverine retries, the inbox records each attempt,
+          # and the message ends up in the broker's dead-letter queue.
           curl -sf -H 'Content-Type: application/json' "$api/orders" \
             -d "{\"orderId\":\"$(cat /proc/sys/kernel/random/uuid)\",\"customerId\":\"$(cat /proc/sys/kernel/random/uuid)\",\"totalAmount\":1,\"currency\":\"XXX\"}"
 
@@ -73,7 +79,7 @@ jobs:
             for i in $(seq 1 45); do [ "$(q "$1" "$2")" = "$3" ] && return 0; sleep 2; done
             echo "FAILED on $1: $2 (expected $3, got $(q "$1" "$2"))"; docker compose logs --tail 80; exit 1
           }
-          # The relay published all six events (the outbox is empty of pending messages).
+          # The relays published all six events (the outbox is empty of pending messages).
           check messaging_api "select count(*) from messaging.outbox_messages where processed_at_utc is null" 0
           # ConsumerA recorded the order, the payment and both users (not the XXX order) ...
           check messaging_consumer_a "select count(*) from application.customer_activities" 4
@@ -86,12 +92,63 @@ jobs:
           check messaging_consumer_b "select count(*) from application.welcome_emails" 1
           check messaging_consumer_b "select count(*) from messaging.inbox_messages where dead_lettered_at_utc is not null and attempts = 3" 1
 
-      - name: The outbox admin API and the backlog health check report a healthy outbox
+      - name: A save in the API is published at once, not at the relays' next 30-second poll
         run: |
+          pending() { docker compose exec -T postgres psql -U postgres -d messaging_api -tAc "select count(*) from messaging.outbox_messages where processed_at_utc is null"; }
+          for round in 1 2 3; do
+            start=$(date +%s)
+            curl -sf -H 'Content-Type: application/json' http://localhost:8080/api/v1/inventory \
+              -d "{\"productId\":\"$(cat /proc/sys/kernel/random/uuid)\",\"warehouse\":\"TBS-2\",\"quantityDelta\":1,\"newQuantity\":1}" >/dev/null
+            until [ "$(pending)" = "0" ]; do
+              if [ $(( $(date +%s) - start )) -ge 8 ]; then
+                echo "Round $round: still pending after 8 s; the wake-up didn't reach the relays."
+                docker compose logs --tail 80 producer-worker api
+                exit 1
+              fi
+              sleep 0.5
+            done
+            echo "Round $round: published after $(( $(date +%s) - start )) s"
+          done
+
+      - name: Prometheus has both relays' metrics, every event published once, and no inbox duplicates
+        run: |
+          prom() { curl -s --data-urlencode "query=$1" http://localhost:9090/api/v1/query | jq -r '.data.result[0].value[1] // "none"'; }
+          check() {
+            for i in $(seq 1 30); do [ "$(prom "$1")" = "$2" ] && return 0; sleep 2; done
+            echo "FAILED: $1 (expected $2, got $(prom "$1"))"
+            curl -s http://localhost:9090/api/v1/label/__name__/values | jq -c '.data | map(select(startswith("gm_")))'
+            curl -s -G --data-urlencode 'match[]={__name__=~"gm_messaging_outbox_pending.*"}' http://localhost:9090/api/v1/series | jq -c '.data'
+            exit 1
+          }
+          # Two relay processes (the producer worker replicas) report their outbox gauge.
+          check 'count(count by (service_instance_id) ({__name__=~"gm_messaging_outbox_pending.*", job="GM.Messaging.Sample.Producer.Worker"}))' 2
+          # Nine events (six above, three in the wake-up rounds), each published by exactly one relay.
+          check 'sum({__name__=~"gm_messaging_outbox_published.*_total"})' 9
+          # The consumers handled events, and none saw an event twice (a duplicate publish would show here).
+          check 'sum({__name__=~"gm_messaging_inbox_processed.*_total"}) > bool 0' 1
+          check 'sum({__name__=~"gm_messaging_inbox_duplicates.*_total"}) or vector(0)' 0
+
+      - name: The admin endpoints and health checks report the backlog and dead letters
+        run: |
+          set -e
+          # Outbox (API): nothing pending or dead-lettered.
           curl -sf http://localhost:8080/api/v1/admin/outbox | jq -e '.pending == 0 and .deadLettered == 0'
           curl -sf http://localhost:8080/api/v1/admin/outbox/dead-letters | jq -e 'length == 0'
-          curl -s http://localhost:8080/health/ready | tee ready.json
-          jq -e '.. | objects | select(has("gm:messaging-backlog")) // empty' ready.json >/dev/null || grep -q 'messaging-backlog' ready.json
+          curl -s http://localhost:8080/health/ready | grep -q 'messaging-backlog'
+          # ConsumerB's inbox: the bounced welcome email is its one dead letter.
+          curl -sf http://localhost:8082/admin/inbox | jq -e '.deadLettered == 1'
+          curl -sf http://localhost:8082/admin/inbox/dead-letters | jq -e 'length == 1 and .[0].consumerName == "consumer-b"'
+          # Nothing was published without a queue to receive it.
+          curl -sf http://localhost:8082/admin/broker/unrouted | jq -e '.messages == 0'
+          # The XXX order reached the broker's dead-letter queue after ConsumerA's last retry.
+          for i in $(seq 1 30); do
+            if curl -sf http://localhost:8082/admin/broker/dead-letters | jq -e '.messages >= 1' >/dev/null; then break; fi
+            if [ "$i" = 30 ]; then echo "The XXX order never reached gm.dead-letters"; exit 1; fi
+            sleep 2
+          done
+          curl -sf http://localhost:8082/admin/broker/dead-letters/messages | jq -e 'any(.[]; .body | contains("XXX"))'
+          # Every worker's readiness includes its backlog check.
+          for port in 8081 8082 8083 8084; do curl -s "http://localhost:$port/health/ready" | grep -q 'messaging-backlog'; done
 
       - name: Logs
         if: always()

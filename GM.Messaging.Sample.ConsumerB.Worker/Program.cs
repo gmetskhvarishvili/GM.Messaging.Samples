@@ -1,19 +1,30 @@
+using GM.HealthChecks;
+using GM.HealthChecks.EntityFramework;
+using GM.HealthChecks.Messaging;
 using GM.Messaging.Persistence;
 using GM.Messaging.Sample.ConsumerB.Domain.BoundedContext.MessagingBoundedContext.InboxMessageAggregate;
 using GM.Messaging.Sample.ConsumerB.Infrastructure;
 using GM.Messaging.Sample.ConsumerB.Persistence;
 using GM.Messaging.Sample.ConsumerB.Persistence.Context;
+using GM.Messaging.Sample.ConsumerB.Worker.Admin;
 using GM.Messaging.Sample.ConsumerB.Worker.InboxHandlers;
+using GM.Messaging.Sample.Domain.Events;
+using GM.Messaging.Sample.Domain.Events.Inventory;
 using GM.Messaging.Sample.Domain.Events.Users;
 using Microsoft.EntityFrameworkCore;
 
-var builder = Host.CreateApplicationBuilder(args);
+var builder = WebApplication.CreateBuilder(args);
 
-// Handlers take ConsumerDbContext as well as IInboxProcessor. Wolverine can't build a DbContext in its
-// generated code, so it takes it from the message's scope, as GM.Messaging does for IInboxProcessor:
-// both then share one instance, and a handler's changes commit with the inbox row.
-builder.Services.AddInfrastructure(builder.Configuration, wolverine =>
-    wolverine.CodeGeneration.AlwaysUseServiceLocationFor<ConsumerDbContext>());
+// The upcaster for InventoryUpdated v1 → v2: a producer still on v1 sends the old shape with
+// gm-event-version: 1, and this consumer reads it as v2.
+builder.Services.AddGMIntegrationEvents(events => events
+    .AddAssembly(typeof(SampleEventVersions).Assembly)
+    .AddUpcaster<InventoryUpdatedIntegrationEvent>(fromVersion: 1, SampleEventVersions.InventoryUpdatedV1ToV2));
+
+// Handlers take ConsumerDbContext as well as IInboxProcessor; AddGMInbox (in AddPersistence) tells
+// Wolverine to resolve it from the message's scope, so both share one instance and a handler's changes
+// commit with the inbox row.
+builder.Services.AddInfrastructure(builder.Configuration);
 builder.Services.AddPersistence(builder.Configuration);
 
 // GM.Messaging's inbox worker handles the events UserRegisteredHandler ingests: welcome emails are sent
@@ -21,7 +32,21 @@ builder.Services.AddPersistence(builder.Configuration);
 builder.Services.AddGMInboxWorker<InboxMessage, ConsumerDbContext>();
 builder.Services.AddGMInboxHandler<UserRegisteredIntegrationEvent, SendWelcomeEmail>();
 
+// /health/live, /health/ready (database, RabbitMQ, the inbox backlog) and /health/startup. The sample
+// dead-letters one welcome email on purpose, so dead letters don't count against readiness here.
+builder.Services.AddGMHealthChecks()
+    .AddGMDatabaseCheck<ConsumerDbContext>()
+    .AddGMMessagingCheck()
+    .AddGMMessagingBacklogCheck(backlog =>
+    {
+        backlog.MaxPendingAge = TimeSpan.FromMinutes(2);
+        backlog.MaxDeadLettered = 10;
+    });
+
 var app = builder.Build();
+
+app.MapGMHealthChecks();
+app.MapAdminEndpoints(builder.Configuration);
 
 using (var scope = app.Services.CreateScope())
 {

@@ -1,18 +1,28 @@
+using GM.HealthChecks;
+using GM.HealthChecks.EntityFramework;
+using GM.HealthChecks.Messaging;
 using GM.Messaging.Sample.ConsumerA.Infrastructure;
 using GM.Messaging.Sample.ConsumerA.Persistence;
 using GM.Messaging.Sample.ConsumerA.Persistence.Context;
 using Microsoft.EntityFrameworkCore;
 
-var builder = Host.CreateApplicationBuilder(args);
+var builder = WebApplication.CreateBuilder(args);
 
-// Handlers take ConsumerDbContext as well as IInboxProcessor. Wolverine can't build a DbContext in its
-// generated code, so it takes it from the message's scope, as GM.Messaging does for IInboxProcessor:
-// both then share one instance, and a handler's changes commit with the inbox row.
-builder.Services.AddInfrastructure(builder.Configuration, wolverine =>
-    wolverine.CodeGeneration.AlwaysUseServiceLocationFor<ConsumerDbContext>());
+// Handlers take ConsumerDbContext as well as IInboxProcessor; AddGMInbox (in AddPersistence) tells
+// Wolverine to resolve it from the message's scope, so both share one instance and a handler's changes
+// commit with the inbox row.
+builder.Services.AddInfrastructure(builder.Configuration);
 builder.Services.AddPersistence(builder.Configuration);
 
+// /health/live, /health/ready (database, RabbitMQ, the inbox backlog) and /health/startup.
+builder.Services.AddGMHealthChecks()
+    .AddGMDatabaseCheck<ConsumerDbContext>()
+    .AddGMMessagingCheck()
+    .AddGMMessagingBacklogCheck(backlog => backlog.MaxPendingAge = TimeSpan.FromMinutes(2));
+
 var app = builder.Build();
+
+app.MapGMHealthChecks();
 
 using (var scope = app.Services.CreateScope())
 {

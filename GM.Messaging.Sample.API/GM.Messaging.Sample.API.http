@@ -2,6 +2,7 @@
 # Start the stack with `docker compose up -d --build`; the API is on port 8080.
 
 @api = http://localhost:8080/api/v1
+@consumerB = http://localhost:8082
 @orderId = 3f2c7a10-5b1e-4c8d-9a6f-1e2d3c4b5a60
 
 ### Place an order (event: orders.order-placed, ordering key = the order id)
@@ -57,3 +58,30 @@ DELETE {{api}}/admin/outbox/dead-letters?deadLetteredBeforeUtc=2030-01-01T00:00:
 
 ### Readiness: database + outbox backlog
 GET http://localhost:8080/health/ready
+
+### ConsumerB's inbox backlog (the inbox worker's pending and dead-lettered rows)
+GET {{consumerB}}/admin/inbox
+
+### ConsumerB's dead-lettered inbox rows (the bounced welcome email)
+GET {{consumerB}}/admin/inbox/dead-letters
+
+### Requeue one dead-lettered inbox row
+POST {{consumerB}}/admin/inbox/dead-letters/consumer-b/00000000-0000-0000-0000-000000000000/requeue
+
+### The broker's dead-letter queue (messages Wolverine gave up on, such as the XXX order)
+GET {{consumerB}}/admin/broker/dead-letters
+
+### Look at them without consuming them
+GET {{consumerB}}/admin/broker/dead-letters/messages
+
+### Replay them to their original queues (after fixing the cause)
+POST {{consumerB}}/admin/broker/dead-letters/replay
+
+### Unrouted messages: published to an exchange with no queue bound for them
+GET {{consumerB}}/admin/broker/unrouted
+
+### Move unrouted messages back to their exchange once a queue is bound
+POST {{consumerB}}/admin/broker/unrouted/move?exchange=gm.events
+
+### Every worker's readiness: database, RabbitMQ and its backlog
+GET http://localhost:8081/health/ready

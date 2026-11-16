@@ -1,41 +1,62 @@
+using GM.HealthChecks;
+using GM.HealthChecks.EntityFramework;
+using GM.HealthChecks.Messaging;
+using GM.Messaging.Persistence;
 using GM.Messaging.Sample.Domain.Events;
+using GM.Messaging.Sample.Domain.Events.Inventory;
 using GM.Messaging.Sample.Producer.Infrastructure;
 using GM.Messaging.Sample.Persistence;
 using GM.Messaging.Sample.Persistence.Context;
 using Microsoft.EntityFrameworkCore;
 
-var builder = Host.CreateApplicationBuilder(args);
+var builder = WebApplication.CreateBuilder(args);
 
-// Upcasters for events whose payload changed (InventoryUpdated v1 → v2), so the relay can still publish
-// rows written before the change.
-SampleEventVersions.Register();
+// The upcaster for InventoryUpdated v1 → v2, so the relay can still publish rows written before the change.
+builder.Services.AddGMIntegrationEvents(events => events
+    .AddAssembly(typeof(SampleEventVersions).Assembly)
+    .AddUpcaster<InventoryUpdatedIntegrationEvent>(fromVersion: 1, SampleEventVersions.InventoryUpdatedV1ToV2));
 
 builder.Services.AddInfrastructure(builder.Configuration);
 builder.Services.AddPersistence(builder.Configuration, runOutboxRelay: true);
 
+// /health/live, /health/ready (database, RabbitMQ, the outbox backlog) and /health/startup.
+builder.Services.AddGMHealthChecks()
+    .AddGMDatabaseCheck<ApplicationDbContext>()
+    .AddGMMessagingCheck()
+    .AddGMMessagingBacklogCheck(backlog => backlog.MaxPendingAge = TimeSpan.FromMinutes(2));
+
 var app = builder.Build();
 
-using (var scope = app.Services.CreateScope())
-{
-    try
-    {
-        var context = scope.ServiceProvider.GetService<ApplicationDbContext>();
-        if (context != null)
-        {
-            if ((await context.Database.GetPendingMigrationsAsync()).Any())
-                await context.Database.MigrateAsync();
+app.MapGMHealthChecks();
 
-            var logger = scope.ServiceProvider.GetService<ILogger<ApplicationDbContextSeed>>();
-            if (logger != null)
-                await ApplicationDbContextSeed.SeedAsync(context, logger);
-        }
-    }
-    catch (Exception ex)
-    {
-        var logger = app.Services.GetRequiredService<ILogger<Program>>();
-        logger.LogError(ex, "An error occurred while migrating or initializing the database.");
-    }
-}
+// The API owns the messaging_api database and applies its migrations. Wait for them instead of racing it:
+// two processes migrating one database at once can both try to create the same tables.
+await WaitForMigrationsAsync(app.Services, app.Logger, app.Lifetime.ApplicationStopping);
 
 await app.RunAsync();
 
+static async Task WaitForMigrationsAsync(IServiceProvider services, ILogger logger, CancellationToken cancellationToken)
+{
+    var deadline = DateTime.UtcNow.AddMinutes(5);
+    while (true)
+    {
+        try
+        {
+            await using var scope = services.CreateAsyncScope();
+            var context = scope.ServiceProvider.GetRequiredService<ApplicationDbContext>();
+            if (!(await context.Database.GetPendingMigrationsAsync(cancellationToken)).Any())
+                return;
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            // The database doesn't exist yet.
+            logger.LogDebug(ex, "The application database isn't reachable yet.");
+        }
+
+        if (DateTime.UtcNow > deadline)
+            throw new InvalidOperationException("The API didn't apply the application database's migrations within 5 minutes.");
+
+        logger.LogInformation("Waiting for the API to apply the application database's migrations.");
+        await Task.Delay(TimeSpan.FromSeconds(2), cancellationToken);
+    }
+}
