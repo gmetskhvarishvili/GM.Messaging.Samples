@@ -1,0 +1,59 @@
+# Requests for the sample API (Visual Studio, Rider or VS Code's REST Client).
+# Start the stack with `docker compose up -d --build`; the API is on port 8080.
+
+@api = http://localhost:8080/api/v1
+@orderId = 3f2c7a10-5b1e-4c8d-9a6f-1e2d3c4b5a60
+
+### Place an order (event: orders.order-placed, ordering key = the order id)
+POST {{api}}/orders
+Content-Type: application/json
+
+{ "orderId": "{{orderId}}", "customerId": "8d1c2b3a-4e5f-4a6b-9c7d-0e1f2a3b4c5d", "totalAmount": 42.50, "currency": "EUR" }
+
+### Pay it (payments.payment-processed, same ordering key: ConsumerB's timeline gets it after the order)
+POST {{api}}/payments
+Content-Type: application/json
+
+{ "paymentId": "a1b2c3d4-e5f6-4a7b-8c9d-0e1f2a3b4c5d", "orderId": "{{orderId}}", "amount": 42.50, "status": "Succeeded" }
+
+### Register a user (ConsumerA records it; ConsumerB's inbox worker sends a welcome email)
+POST {{api}}/users
+Content-Type: application/json
+
+{ "userId": "b2c3d4e5-f6a7-4b8c-9d0e-1f2a3b4c5d6e", "email": "ana@example.test", "name": "Ana" }
+
+### Register a user whose email bounces (ConsumerB's inbox worker retries 3 times, then dead-letters it)
+POST {{api}}/users
+Content-Type: application/json
+
+{ "userId": "c3d4e5f6-a7b8-4c9d-8e1f-2a3b4c5d6e7f", "email": "nobody@bounce.test", "name": "Bounce" }
+
+### Change stock (inventory.inventory-updated, payload version 2)
+POST {{api}}/inventory
+Content-Type: application/json
+
+{ "productId": "d4e5f6a7-b8c9-4d0e-9f2a-3b4c5d6e7f80", "warehouse": "TBS-1", "quantityDelta": 5, "newQuantity": 5 }
+
+### An order ConsumerA can't handle (currency XXX): Wolverine retries it, the inbox row records each attempt
+POST {{api}}/orders
+Content-Type: application/json
+
+{ "orderId": "e5f6a7b8-c9d0-4e1f-8a3b-4c5d6e7f8091", "customerId": "8d1c2b3a-4e5f-4a6b-9c7d-0e1f2a3b4c5d", "totalAmount": 1, "currency": "XXX" }
+
+### Outbox backlog: pending, oldest pending, dead-lettered
+GET {{api}}/admin/outbox
+
+### Dead-lettered outbox messages
+GET {{api}}/admin/outbox/dead-letters
+
+### Requeue one dead-lettered message (after fixing its cause)
+POST {{api}}/admin/outbox/dead-letters/00000000-0000-0000-0000-000000000000/requeue
+
+### Requeue every dead-lettered message
+POST {{api}}/admin/outbox/dead-letters/requeue
+
+### Delete dead-lettered messages older than a date
+DELETE {{api}}/admin/outbox/dead-letters?deadLetteredBeforeUtc=2030-01-01T00:00:00Z
+
+### Readiness: database + outbox backlog
+GET http://localhost:8080/health/ready

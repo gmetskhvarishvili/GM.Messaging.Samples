@@ -144,6 +144,12 @@ namespace GM.Messaging.Sample.Persistence.Migrations
                         .HasColumnType("character varying(500)")
                         .HasColumnName("event_type");
 
+                    b.Property<int>("EventVersion")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("integer")
+                        .HasDefaultValue(1)
+                        .HasColumnName("event_version");
+
                     b.Property<string>("LockedBy")
                         .HasMaxLength(200)
                         .HasColumnType("character varying(200)")
@@ -156,6 +162,11 @@ namespace GM.Messaging.Sample.Persistence.Migrations
                     b.Property<DateTime?>("NextAttemptAtUtc")
                         .HasColumnType("timestamp with time zone")
                         .HasColumnName("next_attempt_at_utc");
+
+                    b.Property<string>("OrderingKey")
+                        .HasMaxLength(200)
+                        .HasColumnType("character varying(200)")
+                        .HasColumnName("ordering_key");
 
                     b.Property<string>("Payload")
                         .IsRequired()
@@ -189,6 +200,9 @@ namespace GM.Messaging.Sample.Persistence.Migrations
 
                     b.HasIndex("UserId")
                         .HasDatabaseName("ix_outbox_messages_user_id");
+
+                    b.HasIndex("OrderingKey", "CreatedAtUtc")
+                        .HasDatabaseName("ix_outbox_messages_ordering");
 
                     b.HasIndex("ProcessedAtUtc", "DeadLetteredAtUtc", "CreatedAtUtc")
                         .HasDatabaseName("ix_outbox_messages_pending");

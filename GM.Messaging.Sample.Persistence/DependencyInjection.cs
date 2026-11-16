@@ -1,4 +1,6 @@
 using GM.Messaging;
+using GM.Messaging.Persistence;
+using GM.Messaging.Persistence.Outbox;
 using GM.Messaging.Sample.Domain.BoundedContext.MessagingBoundedContext.OutboxMessageAggregate;
 using GM.Messaging.Sample.Domain.BoundedContext.MessagingBoundedContext.OutboxMessageAggregate.Interfaces;
 using GM.Messaging.Sample.Domain.SeedWork;
@@ -14,26 +16,28 @@ public static class DependencyInjection
 {
     public static IServiceCollection AddPersistence(this IServiceCollection services, IConfiguration configuration, bool runOutboxRelay = false)
     {
-        // shared service caching and is discouraged unless you inject custom EF services.
-        services.AddDbContextPool<ApplicationDbContext>(options =>
+        // Pooled contexts; AddGMOutboxSignal adds the interceptor that wakes this process's relay as soon
+        // as a save adds outbox messages (a no-op in a process that doesn't run the relay).
+        services.AddDbContextPool<ApplicationDbContext>((serviceProvider, options) =>
         {
             options.UseNpgsql(configuration.GetConnectionString("ApplicationDatabase"),
                 o =>
                 {
                     o.UseQuerySplittingBehavior(QuerySplittingBehavior.SplitQuery);
                     o.CommandTimeout(60);
-                }).UseSnakeCaseNamingConvention();
+                }).UseSnakeCaseNamingConvention()
+                .AddGMOutboxSignal(serviceProvider);
         });
 
         services.AddTransient<IOutboxMessageRepository, OutboxMessageRepository>();
         services.AddTransient<IUnitOfWork, UnitOfWork.UnitOfWork>();
 
-        // Only the process that relays the outbox (the producer worker) passes true; the API must not,
-        // or two pollers would read the same outbox table and publish messages twice.
+        // Every host can inspect the outbox and requeue dead letters (the API exposes it under /admin).
+        services.AddGMOutboxAdministration<OutboxMessage, ApplicationDbContext>();
+
+        // The relay leases each message, so several relays are safe; the producer worker runs it here.
         if (runOutboxRelay)
-        {
             services.AddGMOutboxRelay<OutboxMessage, ApplicationDbContext>();
-        }
 
         return services;
     }

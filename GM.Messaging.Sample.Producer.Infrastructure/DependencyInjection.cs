@@ -1,13 +1,20 @@
+using GM.Messaging.Sample.Common.Telemetry;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
+using Wolverine;
 
 namespace GM.Messaging.Sample.Producer.Infrastructure;
 
 public static class DependencyInjection
 {
-    public static IServiceCollection AddInfrastructure(this IServiceCollection services, IConfiguration configuration)
+    /// <summary>GM.Messaging (Wolverine + RabbitMQ from configuration) and OpenTelemetry.</summary>
+    public static IServiceCollection AddInfrastructure(
+        this IServiceCollection services,
+        IConfiguration configuration,
+        Action<WolverineOptions>? configureWolverine = null)
     {
-        services.AddGMMessaging(configuration);
+        services.AddGMMessaging(configuration, configureWolverine);
+        services.AddSampleTelemetry(configuration);
 
         return services;
     }

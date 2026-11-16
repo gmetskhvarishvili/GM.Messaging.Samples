@@ -1,0 +1,118 @@
+# The whole GM.Messaging sample: PostgreSQL, RabbitMQ, Jaeger, the API, the producer worker (outbox relay)
+# and two consumers.
+#
+#   docker compose up -d --build                      # everything; API + Swagger on http://localhost:8080
+#   docker compose up -d postgres rabbitmq jaeger     # just the infrastructure, to `dotnet run` the projects
+#
+# UIs: RabbitMQ management http://localhost:15672 (guest/guest), Jaeger http://localhost:16686 (search for
+# GM.Messaging.Sample.API: a request, the relay's publish and both consumers' handling are one trace).
+#
+# Each service applies its own migrations on startup and creates its database. The relay leases each
+# outbox message, so `docker compose up -d --scale producer-worker=2` is safe.
+
+x-messaging: &messaging
+  Messaging__RabbitMq__HostName: rabbitmq
+  OTEL_EXPORTER_OTLP_ENDPOINT: http://jaeger:4317
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: gm-messaging-postgres
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: "123456"
+    ports:
+      - "5432:5432"
+    volumes:
+      - gm-messaging-pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  rabbitmq:
+    image: rabbitmq:4-management-alpine
+    container_name: gm-messaging-rabbitmq
+    ports:
+      - "5672:5672"
+      - "15672:15672"
+    healthcheck:
+      test: ["CMD", "rabbitmq-diagnostics", "-q", "ping"]
+      interval: 5s
+      timeout: 10s
+      retries: 20
+
+  jaeger:
+    image: jaegertracing/all-in-one:1.62.0
+    container_name: gm-messaging-jaeger
+    environment:
+      COLLECTOR_OTLP_ENABLED: "true"
+    ports:
+      - "16686:16686"
+      - "4317:4317"
+
+  api:
+    build:
+      context: .
+      args:
+        PROJECT: GM.Messaging.Sample.API
+    container_name: gm-messaging-api
+    environment:
+      <<: *messaging
+      ASPNETCORE_ENVIRONMENT: Development
+      Messaging__ServiceName: GM.Messaging.Sample.API
+      ConnectionStrings__ApplicationDatabase: "Host=postgres;Port=5432;Database=messaging_api;Username=postgres;Password=123456"
+    ports:
+      - "8080:8080"
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  producer-worker:
+    build:
+      context: .
+      args:
+        PROJECT: GM.Messaging.Sample.Producer.Worker
+    # No container_name, so it can run as several replicas (the relay leases messages).
+    environment:
+      <<: *messaging
+      ConnectionStrings__ApplicationDatabase: "Host=postgres;Port=5432;Database=messaging_api;Username=postgres;Password=123456"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+
+  consumer-a:
+    build:
+      context: .
+      args:
+        PROJECT: GM.Messaging.Sample.ConsumerA.Worker
+    container_name: gm-messaging-consumer-a
+    environment:
+      <<: *messaging
+      ConnectionStrings__ApplicationDatabase: "Host=postgres;Port=5432;Database=messaging_consumer_a;Username=postgres;Password=123456"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+
+  consumer-b:
+    build:
+      context: .
+      args:
+        PROJECT: GM.Messaging.Sample.ConsumerB.Worker
+    container_name: gm-messaging-consumer-b
+    environment:
+      <<: *messaging
+      ConnectionStrings__ApplicationDatabase: "Host=postgres;Port=5432;Database=messaging_consumer_b;Username=postgres;Password=123456"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+
+volumes:
+  gm-messaging-pgdata:

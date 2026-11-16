@@ -1,17 +1,16 @@
 using GM.Messaging.Persistence.Inbox;
+using GM.Messaging.Sample.ConsumerA.Domain.BoundedContext.ActivityBoundedContext;
+using GM.Messaging.Sample.ConsumerA.Persistence.Context;
 using GM.Messaging.Sample.Domain.Events.Users;
-using Microsoft.Extensions.Logging;
 
 namespace GM.Messaging.Sample.ConsumerA.Worker.Handlers;
 
-public class UserRegisteredHandler(IInboxProcessor inbox, ILogger<UserRegisteredHandler> logger)
+public class UserRegisteredHandler
 {
-    public Task Handle(UserRegisteredIntegrationEvent message, CancellationToken ct) =>
-        inbox.ProcessAsync(message, "ConsumerA", () =>
+    public static Task Handle(UserRegisteredIntegrationEvent message, IInboxProcessor inbox, ConsumerDbContext db, CancellationToken ct) =>
+        inbox.ProcessAsync(message, () =>
         {
-            logger.LogInformation(
-                "[ConsumerA] User registered — UserId: {UserId}, Email: {Email}, Name: {Name}",
-                message.UserId, message.Email, message.Name);
+            db.Add(CustomerActivity.Record(message.EventId, message.UserId, "user-registered", message.Email, null, message.OccurredAtUtc));
             return Task.CompletedTask;
         }, ct);
 }
