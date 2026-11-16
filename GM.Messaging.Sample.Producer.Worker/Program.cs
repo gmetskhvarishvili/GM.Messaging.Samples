@@ -1,3 +1,4 @@
+using GM.Messaging.Sample.Common.Admin;
 using GM.HealthChecks;
 using GM.HealthChecks.EntityFramework;
 using GM.HealthChecks.Messaging;
@@ -25,9 +26,14 @@ builder.Services.AddGMHealthChecks()
     .AddGMMessagingCheck()
     .AddGMMessagingBacklogCheck(backlog => backlog.MaxPendingAge = TimeSpan.FromMinutes(2));
 
+// GM.Messaging's admin endpoints under /admin/messaging (this host's outbox or inbox, and the broker queues),
+// behind the messaging-admin policy (an X-Admin-Key header in this sample).
+builder.Services.AddSampleMessagingAdmin(builder.Configuration);
+
 var app = builder.Build();
 
 app.MapGMHealthChecks();
+app.MapSampleMessagingAdmin();
 
 // The API owns the messaging_api database and applies its migrations. Wait for them instead of racing it:
 // two processes migrating one database at once can both try to create the same tables.

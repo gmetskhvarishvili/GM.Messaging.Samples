@@ -40,11 +40,11 @@ W3C trace context, the relay publishes in it, and Wolverine carries it to the co
 
 | Failure | What GM.Messaging does | Where to see it |
 | --- | --- | --- |
-| RabbitMQ is down or rejects a publish | The relay records the error, retries with backoff (`OutboxRelay:RetryBaseDelaySeconds`, doubling), and dead-letters after `MaxRetries`. | `GET /api/v1/admin/outbox`, the readiness check (Degraded), relay logs |
+| RabbitMQ is down or rejects a publish | The relay records the error, retries with backoff (`OutboxRelay:RetryBaseDelaySeconds`, doubling), and dead-letters after `MaxRetries`. | `GET /admin/messaging/outbox`, the readiness check (Degraded), relay logs |
 | An event type has no route | Same as a failed publish, with a `NoRouteException` naming the missing `ProducerTopology` entry. | dead letters in the admin API |
-| An event is routed to an exchange, but no queue is bound for it | RabbitMQ hands it to the alternate exchange `gm.unrouted`, which keeps it in the `gm.unrouted` queue. | ConsumerB `GET /admin/broker/unrouted`; move them back with `POST /admin/broker/unrouted/move` |
-| A ConsumerA handler throws (orders in `XXX`) | The handler's changes roll back, the inbox row records the error and the attempt, and Wolverine retries (`Messaging:Retry`) before moving the message to `gm.dead-letters`; the last failed delivery dead-letters the inbox row too. | `messaging_consumer_a.messaging.inbox_messages`; ConsumerB `GET /admin/broker/dead-letters/messages`, then `POST .../replay` |
-| The welcome email bounces (`@bounce.test`) | The inbox worker retries with backoff (`Messaging:Inbox`) and dead-letters the row after `MaxAttempts`. | ConsumerB `GET /admin/inbox/dead-letters` |
+| An event is routed to an exchange, but no queue is bound for it | RabbitMQ hands it to the alternate exchange `gm.unrouted`, which keeps it in the `gm.unrouted` queue. | ConsumerB `GET /admin/messaging/broker/unrouted`; move them back with `POST /admin/messaging/broker/unrouted/move` |
+| A ConsumerA handler throws (orders in `XXX`) | The handler's changes roll back, the inbox row records the error and the attempt, and Wolverine retries (`Messaging:Retry`) before moving the message to `gm.dead-letters`; the last failed delivery dead-letters the inbox row too. | `messaging_consumer_a.messaging.inbox_messages`; ConsumerB `GET /admin/messaging/broker/dead-letters/messages`, then `POST .../replay` |
+| The welcome email bounces (`@bounce.test`) | The inbox worker retries with backoff (`Messaging:Inbox`) and dead-letters the row after `MaxAttempts`. | ConsumerB `GET /admin/messaging/inbox/dead-letters` |
 | The same event arrives twice | The inbox skips it: only one activity or timeline row per event (unique `event_id`). | the `gm.messaging.inbox.duplicates` metric |
 | A relay stops mid-batch | Its leases expire after `LeaseSeconds` and another relay (or the restarted one) publishes those messages. | |
 

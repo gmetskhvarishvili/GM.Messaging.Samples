@@ -11,7 +11,8 @@
 #   Jaeger                  http://localhost:16686 (a request, the relay's publish and both consumers' handling are one trace)
 #   Prometheus              http://localhost:9090  (try gm_messaging_outbox_published_total or gm_messaging_inbox_processed_total)
 #   Consumer A              http://localhost:8081/health/ready
-#   Consumer B              http://localhost:8082/health/ready, /admin/inbox, /admin/broker/dead-letters, /admin/broker/unrouted
+#   Consumer B              http://localhost:8082/health/ready, /admin/messaging/inbox, /admin/messaging/broker/...
+#   Admin endpoints         /admin/messaging/... on every host, with the header X-Admin-Key: sample-admin-key
 #   Producer worker(s)      http://localhost:8083/health/ready (and 8084 for the second replica)
 #
 # The API applies the application database's migrations; the producer worker waits for them. Each consumer
@@ -23,6 +24,8 @@ x-messaging: &messaging
   OTEL_EXPORTER_OTLP_ENDPOINT: http://otel-collector:4317
   # Metrics every 5 s instead of every minute, so Prometheus (and CI) see them quickly.
   OTEL_METRIC_EXPORT_INTERVAL: "5000"
+  # The key for GM.Messaging's admin endpoints (/admin/messaging, X-Admin-Key header) in every host.
+  Admin__ApiKey: sample-admin-key
 
 services:
   postgres:

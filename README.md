@@ -19,14 +19,14 @@ consumers that receive them over **RabbitMQ** with an **inbox** for de-duplicati
 ```
 GM.Messaging.Samples/
 ├── Producer
-│   ├── GM.Messaging.Sample.API             # Web API — commands write events to the outbox; outbox admin; health
+│   ├── GM.Messaging.Sample.API             # Web API — commands write events to the outbox; admin; health
 │   ├── GM.Messaging.Sample.Application      # CQRS commands + validators (Create Order/Payment/…)
 │   ├── GM.Messaging.Sample.Domain           # Integration events + the outbox aggregate
 │   ├── GM.Messaging.Sample.Persistence      # EF Core persistence (PostgreSQL)
-│   ├── GM.Messaging.Sample.Common           # Shared resources + OpenTelemetry setup
+│   ├── GM.Messaging.Sample.Common           # Shared resources, OpenTelemetry, admin endpoints + API-key policy
 │   └── GM.Messaging.Sample.Producer.Worker  # The outbox relay (leased, confirmed, retried, ordered); health
 ├── ConsumerA (Domain / Infrastructure / Persistence / Worker)   # customer activity via ProcessAsync
-├── ConsumerB (Domain / Infrastructure / Persistence / Worker)   # order timeline, stock, inbox-worker emails, admin
+├── ConsumerB (Domain / Infrastructure / Persistence / Worker)   # order timeline, stock, inbox-worker emails
 ├── tests/
 │   └── GM.Messaging.Sample.Tests            # validator, event and outbox unit tests
 ├── docs/                                    # architecture and operations
@@ -48,7 +48,8 @@ docker compose up -d --build
 | RabbitMQ management | http://localhost:15672 (guest/guest) |
 | Jaeger (traces) | http://localhost:16686 |
 | Prometheus (metrics) | http://localhost:9090, e.g. `gm_messaging_outbox_published_total` |
-| Consumer A / B, producer worker | http://localhost:8081, :8082, :8083: `/health/ready`; ConsumerB also `/admin/...` |
+| Consumer A / B, producer worker | http://localhost:8081, :8082, :8083: `/health/ready` |
+| Admin endpoints (every host) | `/admin/messaging/...` with the header `X-Admin-Key: sample-admin-key` |
 
 [`GM.Messaging.Sample.API.http`](GM.Messaging.Sample.API/GM.Messaging.Sample.API.http) has a request for
 every endpoint, including the failure cases and the workers' admin endpoints. To run the projects with
@@ -71,8 +72,8 @@ Every GM.Messaging feature, each where a real service would use it:
 | **Transactional inbox**: the handler's changes and the inbox row commit together | ConsumerA (`customer_activities`), ConsumerB (`order_timeline`, `stock_levels`) via `ProcessAsync` |
 | **Retried failures** recorded on the inbox row, then the broker's dead-letter queue | ConsumerA rejects orders in `XXX` |
 | **Inbox worker** for slow work, with backoff and dead-lettering | ConsumerB's welcome emails (`IngestAsync` + `IInboxHandler`); `@bounce.test` addresses fail |
-| **Dead-letter admin**: outbox, inbox, and the broker's queues | API `/api/v1/admin/outbox/...`; ConsumerB `/admin/inbox/...`, `/admin/broker/dead-letters/...`, `/admin/broker/unrouted/...` |
-| **No lost unrouted messages**: anything published with no queue bound is kept | The `gm.unrouted` queue; `POST /admin/broker/unrouted/move?exchange=gm.events` sends them back |
+| **Admin endpoints** for the outbox, inbox and broker queues, behind an authorization policy | `MapGMMessagingAdmin()` (GM.Messaging.AspNetCore) in every host under `/admin/messaging`; the `messaging-admin` policy takes an `X-Admin-Key` header here |
+| **No lost unrouted messages**: anything published with no queue bound is kept | The `gm.unrouted` queue; `POST /admin/messaging/broker/unrouted/move?exchange=gm.events` sends them back |
 | **Health checks** in every host: database, RabbitMQ, backlog | `/health/ready` (`AddGMDatabaseCheck`, `AddGMMessagingCheck`, `AddGMMessagingBacklogCheck`) |
 | **Traces and metrics** | OpenTelemetry in every host (`AddSampleTelemetry`) → OpenTelemetry collector → Jaeger and Prometheus |
 | **One consumer name per service** | `Messaging:Inbox:ConsumerName`; handlers call `ProcessAsync(message, handler)` |
@@ -107,6 +108,9 @@ services.AddGMInbox<InboxMessage, ConsumerDbContext>();
 // ConsumerB: the inbox worker and its handler.
 builder.Services.AddGMInboxWorker<InboxMessage, ConsumerDbContext>();
 builder.Services.AddGMInboxHandler<UserRegisteredIntegrationEvent, SendWelcomeEmail>();
+
+// Every host: GM.Messaging's admin endpoints, behind an authorization policy.
+app.MapGMMessagingAdmin(admin => admin.AuthorizationPolicy = "messaging-admin");
 ```
 
 A consumer handler:
@@ -137,7 +141,8 @@ trace capture) and outbox serialization. CI's `compose` job also runs the whole 
 - the failing order was retried and reached the broker's dead-letter queue, and the bouncing email was dead-lettered in the inbox;
 - a save in the API is published within seconds, although the relays poll every 30 s;
 - Prometheus shows both relays, every event published exactly once, and no inbox duplicates;
-- the admin endpoints and every host's health checks report the backlog, and nothing went unrouted.
+- the admin endpoints refuse requests without the key, map what each host has, and with every host's
+  health checks report the backlog; nothing went unrouted.
 
 ## Requirements
 

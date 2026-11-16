@@ -1,3 +1,4 @@
+using GM.Messaging.Sample.Common.Admin;
 using GM.HealthChecks;
 using GM.HealthChecks.EntityFramework;
 using GM.HealthChecks.Messaging;
@@ -20,9 +21,14 @@ builder.Services.AddGMHealthChecks()
     .AddGMMessagingCheck()
     .AddGMMessagingBacklogCheck(backlog => backlog.MaxPendingAge = TimeSpan.FromMinutes(2));
 
+// GM.Messaging's admin endpoints under /admin/messaging (this host's outbox or inbox, and the broker queues),
+// behind the messaging-admin policy (an X-Admin-Key header in this sample).
+builder.Services.AddSampleMessagingAdmin(builder.Configuration);
+
 var app = builder.Build();
 
 app.MapGMHealthChecks();
+app.MapSampleMessagingAdmin();
 
 using (var scope = app.Services.CreateScope())
 {
