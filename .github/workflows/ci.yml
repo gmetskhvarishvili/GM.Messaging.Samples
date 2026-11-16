@@ -46,7 +46,10 @@ jobs:
               && exit 0
             sleep 2
           done
-          docker compose ps; docker compose logs --tail 50; exit 1
+          docker compose ps
+          for port in 8080 8081 8082 8083 8084; do echo "== :$port/health/ready"; curl -s -w ' (HTTP %{http_code})\n' "http://localhost:$port/health/ready"; done
+          curl -s -u guest:guest http://localhost:15672/api/queues | jq -r '.[].name'
+          docker compose logs --tail 50; exit 1
 
       - name: Place an order, pay it, register users and change stock
         run: |
