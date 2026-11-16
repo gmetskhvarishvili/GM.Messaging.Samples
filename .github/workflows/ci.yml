@@ -85,6 +85,8 @@ jobs:
           check messaging_consumer_a "select count(*) from application.customer_activities" 4
           # ... and kept retrying the XXX order, with the error on its inbox row.
           check messaging_consumer_a "select count(*) > 0 from messaging.inbox_messages where processed_at_utc is null and attempts >= 2 and error like '%XXX%'" t
+          # After the broker's last delivery (first try + 3 retries) the row is dead-lettered too (GM.Messaging 4.1).
+          check messaging_consumer_a "select count(*) from messaging.inbox_messages where dead_lettered_at_utc is not null and attempts = 4 and error like '%XXX%'" 1
           # ConsumerB's timeline has the order before its payment (ordering key + sequential queue).
           check messaging_consumer_b "select string_agg(kind, ',' order by recorded_at_utc) from application.order_timeline where order_id = '$ORDER'" "placed,payment-succeeded"
           check messaging_consumer_b "select count(*) from application.stock_levels where warehouse_code = 'TBS-1'" 1
@@ -147,6 +149,11 @@ jobs:
             sleep 2
           done
           curl -sf http://localhost:8082/admin/broker/dead-letters/messages | jq -e 'any(.[]; .body | contains("XXX"))'
+          # A filtered dry run counts the XXX order without replaying it; one for another queue matches nothing.
+          before=$(curl -sf http://localhost:8082/admin/broker/dead-letters | jq '.messages')
+          curl -sf -X POST "http://localhost:8082/admin/broker/dead-letters/replay?queue=gm.consumer-a.orders&dryRun=true" | jq -e '.matched >= 1 and .transferred == 0'
+          curl -sf -X POST "http://localhost:8082/admin/broker/dead-letters/replay?queue=no-such-queue" | jq -e '.matched == 0 and .transferred == 0'
+          [ "$(curl -sf http://localhost:8082/admin/broker/dead-letters | jq '.messages')" = "$before" ]
           # Every worker's readiness includes its backlog check.
           for port in 8081 8082 8083 8084; do curl -s "http://localhost:$port/health/ready" | grep -q 'messaging-backlog'; done
 

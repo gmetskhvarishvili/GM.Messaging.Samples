@@ -46,7 +46,13 @@ last retry, such as ConsumerA's XXX order), through ConsumerB (`IBrokerQueueAdmi
 curl http://localhost:8082/admin/broker/dead-letters                # how many
 curl http://localhost:8082/admin/broker/dead-letters/messages       # look without consuming: original queue, reason, body
 curl -X POST http://localhost:8082/admin/broker/dead-letters/replay # back to each message's original queue
+curl -X POST "http://localhost:8082/admin/broker/dead-letters/replay?queue=gm.consumer-a.orders&dryRun=true"  # only count
 ```
+
+The replay, move and messages endpoints take `type`, `queue` (the original queue), `routingKey`, `max`
+and `dryRun`; messages that don't match stay in place, in order. ConsumerA's inbox row for the XXX order
+is dead-lettered as well once the broker's last delivery fails, so its readiness reports the dead letter
+(Degraded). Replaying the message from the broker hands it to the handler again.
 
 ## Unrouted messages
 

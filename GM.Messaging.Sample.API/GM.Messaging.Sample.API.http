@@ -77,6 +77,9 @@ GET {{consumerB}}/admin/broker/dead-letters/messages
 ### Replay them to their original queues (after fixing the cause)
 POST {{consumerB}}/admin/broker/dead-letters/replay
 
+### Dry run: count what a replay of ConsumerA's orders would send back, without touching anything
+POST {{consumerB}}/admin/broker/dead-letters/replay?queue=gm.consumer-a.orders&dryRun=true
+
 ### Unrouted messages: published to an exchange with no queue bound for them
 GET {{consumerB}}/admin/broker/unrouted
 
