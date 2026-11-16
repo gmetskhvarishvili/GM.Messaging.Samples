@@ -3,11 +3,12 @@
 #
 #   docker compose up -d --build                                              # everything
 #   docker compose up -d --build --scale producer-worker=2                    # two relays (CI runs this)
-#   docker compose up -d postgres rabbitmq otel-collector jaeger prometheus   # just the infrastructure
+#   docker compose up -d postgres rabbitmq-setup otel-collector jaeger prometheus   # just the infrastructure
 #
 # UIs and endpoints:
 #   API + Swagger           http://localhost:8080
-#   RabbitMQ management     http://localhost:15672 (guest/guest)
+#   RabbitMQ management     http://localhost:15672 (gm-admin / gm-admin-secret)
+#   RabbitMQ (AMQP)         amqps://localhost:5671, TLS only (certificates from deploy/tls/generate.sh)
 #   Jaeger                  http://localhost:16686 (a request, the relay's publish and both consumers' handling are one trace)
 #   Prometheus              http://localhost:9090  (try gm_messaging_outbox_published_total or gm_messaging_inbox_processed_total)
 #   Consumer A              http://localhost:8081/health/ready
@@ -18,9 +19,20 @@
 # The API applies the application database's migrations; the producer worker waits for them. Each consumer
 # migrates its own database. Saves in the API wake the relays over RabbitMQ, so events are published at once
 # even though the relays only poll every 30 seconds.
+#
+# Security: RabbitMQ accepts only TLS, with a sample CA generated on first start that the services trust
+# (Messaging__RabbitMq__TlsCaCertificatePath). Each service has its own RabbitMQ user, limited to the exchanges
+# and queues it uses (deploy/rabbitmq/setup.sh). Personal data in events ([SensitiveData]) is encrypted with
+# the key ring below. These are sample secrets: in production they come from a secret store.
 
 x-messaging: &messaging
   Messaging__RabbitMq__HostName: rabbitmq
+  Messaging__RabbitMq__Port: "5671"
+  Messaging__RabbitMq__UseTls: "true"
+  Messaging__RabbitMq__TlsCaCertificatePath: /tls/ca.pem
+  # The key ring for [SensitiveData] values: every producer and consumer of those events has the same one.
+  Messaging__SensitiveData__CurrentKeyId: sample-2026-11
+  Messaging__SensitiveData__Keys__sample-2026-11: 0jhLQs7AjRkn9OLKULOvcGKQOili1qobbLtbx54iNF8=
   OTEL_EXPORTER_OTLP_ENDPOINT: http://otel-collector:4317
   # Metrics every 5 s instead of every minute, so Prometheus (and CI) see them quickly.
   OTEL_METRIC_EXPORT_INTERVAL: "5000"
@@ -44,17 +56,53 @@ services:
       timeout: 5s
       retries: 10
 
+  # Generates the sample CA and RabbitMQ's certificate into deploy/tls/certs, once.
+  tls-certs:
+    image: alpine:3.20
+    container_name: gm-messaging-tls-certs
+    command: ["sh", "/scripts/generate.sh"]
+    volumes:
+      - ./deploy/tls:/scripts:ro
+      - ./deploy/tls/certs:/certs
+
   rabbitmq:
     image: rabbitmq:4-management-alpine
     container_name: gm-messaging-rabbitmq
+    environment:
+      RABBITMQ_DEFAULT_USER: gm-admin
+      RABBITMQ_DEFAULT_PASS: gm-admin-secret
+    volumes:
+      - ./deploy/rabbitmq/rabbitmq.conf:/etc/rabbitmq/conf.d/20-gm.conf:ro
+      - ./deploy/tls/certs:/tls:ro
     ports:
-      - "5672:5672"
+      - "5671:5671"
       - "15672:15672"
     healthcheck:
       test: ["CMD", "rabbitmq-diagnostics", "-q", "ping"]
       interval: 5s
       timeout: 10s
       retries: 20
+    depends_on:
+      tls-certs:
+        condition: service_completed_successfully
+
+  # One RabbitMQ user per service, with scoped permissions.
+  rabbitmq-setup:
+    image: curlimages/curl:8.11.0
+    container_name: gm-messaging-rabbitmq-setup
+    entrypoint: ["sh", "/setup.sh"]
+    environment:
+      RABBITMQ_ADMIN_USER: gm-admin
+      RABBITMQ_ADMIN_PASSWORD: gm-admin-secret
+      GM_API_PASSWORD: api-secret
+      GM_PRODUCER_PASSWORD: producer-secret
+      GM_CONSUMER_A_PASSWORD: consumer-a-secret
+      GM_CONSUMER_B_PASSWORD: consumer-b-secret
+    volumes:
+      - ./deploy/rabbitmq/setup.sh:/setup.sh:ro
+    depends_on:
+      rabbitmq:
+        condition: service_healthy
 
   otel-collector:
     image: otel/opentelemetry-collector-contrib:0.115.1
@@ -96,14 +144,18 @@ services:
       <<: *messaging
       ASPNETCORE_ENVIRONMENT: Development
       Messaging__ServiceName: GM.Messaging.Sample.API
+      Messaging__RabbitMq__UserName: gm-api
+      Messaging__RabbitMq__Password: api-secret
       ConnectionStrings__ApplicationDatabase: "Host=postgres;Port=5432;Database=messaging_api;Username=postgres;Password=123456"
+    volumes:
+      - ./deploy/tls/certs:/tls:ro
     ports:
       - "8080:8080"
     depends_on:
       postgres:
         condition: service_healthy
-      rabbitmq:
-        condition: service_healthy
+      rabbitmq-setup:
+        condition: service_completed_successfully
 
   producer-worker:
     build:
@@ -114,14 +166,18 @@ services:
     # each replica's health endpoint is reachable.
     environment:
       <<: *messaging
+      Messaging__RabbitMq__UserName: gm-producer
+      Messaging__RabbitMq__Password: producer-secret
       ConnectionStrings__ApplicationDatabase: "Host=postgres;Port=5432;Database=messaging_api;Username=postgres;Password=123456"
+    volumes:
+      - ./deploy/tls/certs:/tls:ro
     ports:
       - "8083-8084:8080"
     depends_on:
       postgres:
         condition: service_healthy
-      rabbitmq:
-        condition: service_healthy
+      rabbitmq-setup:
+        condition: service_completed_successfully
       api:
         condition: service_started
 
@@ -133,14 +189,18 @@ services:
     container_name: gm-messaging-consumer-a
     environment:
       <<: *messaging
+      Messaging__RabbitMq__UserName: gm-consumer-a
+      Messaging__RabbitMq__Password: consumer-a-secret
       ConnectionStrings__ApplicationDatabase: "Host=postgres;Port=5432;Database=messaging_consumer_a;Username=postgres;Password=123456"
+    volumes:
+      - ./deploy/tls/certs:/tls:ro
     ports:
       - "8081:8080"
     depends_on:
       postgres:
         condition: service_healthy
-      rabbitmq:
-        condition: service_healthy
+      rabbitmq-setup:
+        condition: service_completed_successfully
 
   consumer-b:
     build:
@@ -150,14 +210,18 @@ services:
     container_name: gm-messaging-consumer-b
     environment:
       <<: *messaging
+      Messaging__RabbitMq__UserName: gm-consumer-b
+      Messaging__RabbitMq__Password: consumer-b-secret
       ConnectionStrings__ApplicationDatabase: "Host=postgres;Port=5432;Database=messaging_consumer_b;Username=postgres;Password=123456"
+    volumes:
+      - ./deploy/tls/certs:/tls:ro
     ports:
       - "8082:8080"
     depends_on:
       postgres:
         condition: service_healthy
-      rabbitmq:
-        condition: service_healthy
+      rabbitmq-setup:
+        condition: service_completed_successfully
 
 volumes:
   gm-messaging-pgdata:

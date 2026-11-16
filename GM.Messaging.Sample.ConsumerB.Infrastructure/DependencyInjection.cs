@@ -1,3 +1,4 @@
+using GM.Messaging.Persistence.Protection;
 using GM.Messaging.Sample.Common.Telemetry;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
@@ -14,6 +15,8 @@ public static class DependencyInjection
         Action<WolverineOptions>? configureWolverine = null)
     {
         services.AddGMMessaging(configuration, configureWolverine);
+        // Decrypts [SensitiveData] values (the key ring in Messaging:SensitiveData, shared with the producer).
+        services.AddGMSensitiveData(configuration);
         services.AddSampleTelemetry(configuration);
 
         return services;

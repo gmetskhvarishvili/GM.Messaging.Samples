@@ -42,13 +42,13 @@ jobs:
           ready() { curl -sf "http://localhost:$1/health/ready" >/dev/null; }
           for i in $(seq 1 90); do
             ready 8080 && ready 8081 && ready 8082 && ready 8083 && ready 8084 \
-              && [ "$(curl -s -u guest:guest http://localhost:15672/api/queues | jq '[.[] | select(.name | startswith("gm.consumer-"))] | length')" = "6" ] \
+              && [ "$(curl -s -u gm-admin:gm-admin-secret http://localhost:15672/api/queues | jq '[.[] | select(.name | startswith("gm.consumer-"))] | length')" = "6" ] \
               && exit 0
             sleep 2
           done
           docker compose ps
           for port in 8080 8081 8082 8083 8084; do echo "== :$port/health/ready"; curl -s -w ' (HTTP %{http_code})\n' "http://localhost:$port/health/ready"; done
-          curl -s -u guest:guest http://localhost:15672/api/queues | jq -r '.[].name'
+          curl -s -u gm-admin:gm-admin-secret http://localhost:15672/api/queues | jq -r '.[].name'
           docker compose logs --tail 50; exit 1
 
       - name: Place an order, pay it, register users and change stock
@@ -93,6 +93,32 @@ jobs:
           # The inbox worker sent Ana's welcome email and dead-lettered the bounce after its last attempt.
           check messaging_consumer_b "select count(*) from application.welcome_emails" 1
           check messaging_consumer_b "select count(*) from messaging.inbox_messages where dead_lettered_at_utc is not null and attempts = 3" 1
+
+      - name: Personal data is encrypted everywhere but in the handlers
+        run: |
+          set -e
+          q() { docker compose exec -T postgres psql -U postgres -d "$1" -tAc "$2"; }
+          # UserRegistered's email and name are [SensitiveData]: the outbox row and the consumers' inbox rows hold ciphertext ...
+          [ "$(q messaging_api "select count(*) from messaging.outbox_messages where event_type = 'users.user-registered' and payload like '%gmenc:%' and payload not like '%example.test%'")" = "2" ]
+          [ "$(q messaging_consumer_b "select count(*) from messaging.inbox_messages where event_type = 'users.user-registered' and payload like '%example.test%'")" = "0" ]
+          [ "$(q messaging_consumer_a "select count(*) from messaging.inbox_messages where event_type = 'users.user-registered' and payload like '%example.test%'")" = "0" ]
+          # ... while the handler got the plain address and sent the welcome email to it.
+          [ "$(q messaging_consumer_b "select email from application.welcome_emails")" = "ana@example.test" ]
+
+      - name: RabbitMQ is TLS-only, with a user per service
+        run: |
+          set -e
+          # The plain AMQP port is closed; the TLS one presents a certificate the sample CA vouches for.
+          if (exec 3<>/dev/tcp/localhost/5672) 2>/dev/null; then echo "Plain AMQP (5672) should be closed"; exit 1; fi
+          echo | openssl s_client -connect localhost:5671 -servername rabbitmq -CAfile deploy/tls/certs/ca.pem -verify_return_error 2>/dev/null | grep -q "Verify return code: 0 (ok)"
+          # Each service has its own user; the API may only use the wake-up exchange and reads no queue.
+          users=$(curl -s -u gm-admin:gm-admin-secret http://localhost:15672/api/users | jq -r '[.[].name] | sort | join(",")')
+          [ "$users" = "gm-admin,gm-api,gm-consumer-a,gm-consumer-b,gm-producer" ] || { echo "users: $users"; exit 1; }
+          curl -s -u gm-admin:gm-admin-secret http://localhost:15672/api/permissions/%2F/gm-api | jq -e '.read == "^$" and .write == "^gm.outbox.wake-up$"'
+          curl -s -u gm-admin:gm-admin-secret http://localhost:15672/api/permissions/%2F/gm-consumer-a | jq -e '.read | contains("gm.consumer-a") and (contains("gm.consumer-b") | not)'
+          # Every service is connected with its own user.
+          connected=$(curl -s -u gm-admin:gm-admin-secret http://localhost:15672/api/connections | jq -r '[.[].user] | unique | sort | join(",")')
+          [ "$connected" = "gm-api,gm-consumer-a,gm-consumer-b,gm-producer" ] || { echo "connected users: $connected"; exit 1; }
 
       - name: A save in the API is published at once, not at the relays' next 30-second poll
         run: |
