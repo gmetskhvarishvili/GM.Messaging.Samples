@@ -13,9 +13,9 @@
     <ItemGroup>
         <PackageReference Include="GM.Exceptions" Version="1.3.0" />
         <!-- MessagingTelemetry.Name, and the OpenTelemetry setup every host shares (Telemetry/). -->
-        <PackageReference Include="GM.Messaging.Persistence" Version="4.2.0" />
+        <PackageReference Include="GM.Messaging.Persistence" Version="4.3.0" />
         <!-- MapGMMessagingAdmin, shared by every host (Admin/). -->
-        <PackageReference Include="GM.Messaging.AspNetCore" Version="4.2.0" />
+        <PackageReference Include="GM.Messaging.AspNetCore" Version="4.3.0" />
         <PackageReference Include="OpenTelemetry.Extensions.Hosting" Version="1.21.0" />
         <PackageReference Include="OpenTelemetry.Exporter.OpenTelemetryProtocol" Version="1.21.0" />
     </ItemGroup>

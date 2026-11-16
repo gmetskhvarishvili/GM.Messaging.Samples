@@ -88,7 +88,7 @@ metrics and settings.
 ```csharp
 // Producer persistence: outbox admin everywhere; the relay in the producer worker; in the API, wake-ups
 // that make every relay publish as soon as a save adds outbox messages.
-services.AddDbContextPool<ApplicationDbContext>((sp, o) => o.UseNpgsql(cs).AddGMOutboxSignal(sp));
+services.AddDbContextPool<ApplicationDbContext>((sp, o) => o.UseNpgsql(cs).UseGMMessaging(sp));   // every GM interceptor
 services.AddGMOutboxAdministration<OutboxMessage, ApplicationDbContext>();
 if (runOutboxRelay)
     services.AddGMOutboxRelay<OutboxMessage, ApplicationDbContext>();

@@ -7,12 +7,12 @@ on:
 
 jobs:
   build:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - name: Setup .NET
-        uses: actions/setup-dotnet@v4
+        uses: actions/setup-dotnet@v6
         with:
           dotnet-version: 10.0.x
 
@@ -29,10 +29,10 @@ jobs:
   # outbox → relay → RabbitMQ → both consumers, and the checks read each consumer's database, the
   # workers' health and admin endpoints, and the metrics in Prometheus.
   compose:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - name: Build and start the stack with two relays
         run: docker compose up -d --build --scale producer-worker=2
@@ -167,7 +167,8 @@ jobs:
             if [ "$i" = 30 ]; then echo "The XXX order never reached gm.dead-letters"; exit 1; fi
             sleep 2
           done
-          admin http://localhost:8082/admin/messaging/broker/dead-letters/messages | jq -e 'any(.[]; .body | contains("XXX"))'
+          # Found by its payload on the broker side; the endpoint itself hides bodies (personal data) by default.
+          admin "http://localhost:8082/admin/messaging/broker/dead-letters/messages?contains=XXX" | jq -e 'length >= 1 and all(.[]; .body | startswith("[hidden"))'
           # A filtered dry run counts the XXX order without replaying it; one for another queue matches nothing.
           before=$(admin http://localhost:8082/admin/messaging/broker/dead-letters | jq '.messages')
           admin -X POST "http://localhost:8082/admin/messaging/broker/dead-letters/replay?queue=gm.consumer-a.orders&dryRun=true" | jq -e '.matched >= 1 and .transferred == 0'

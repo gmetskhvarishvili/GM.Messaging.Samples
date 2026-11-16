@@ -65,7 +65,7 @@ last retry, such as ConsumerA's XXX order), through ConsumerB (`IBrokerQueueAdmi
 
 ```bash
 curl -H "$ADMIN" http://localhost:8082/admin/messaging/broker/dead-letters                # how many
-curl -H "$ADMIN" http://localhost:8082/admin/messaging/broker/dead-letters/messages       # look without consuming: original queue, reason, body
+curl -H "$ADMIN" "http://localhost:8082/admin/messaging/broker/dead-letters/messages?contains=XXX"  # look without consuming: original queue, reason (bodies hidden)
 curl -H "$ADMIN" -X POST http://localhost:8082/admin/messaging/broker/dead-letters/replay # back to each message's original queue
 curl -H "$ADMIN" -X POST "http://localhost:8082/admin/messaging/broker/dead-letters/replay?queue=gm.consumer-a.orders&dryRun=true"  # only count
 ```

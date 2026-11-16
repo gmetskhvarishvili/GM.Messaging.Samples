@@ -15,7 +15,7 @@
     </ItemGroup>
 
     <ItemGroup>
-        <PackageReference Include="GM.Messaging" Version="4.2.0" />
+        <PackageReference Include="GM.Messaging" Version="4.3.0" />
         <ProjectReference Include="..\GM.Messaging.Sample.Producer.Infrastructure\GM.Messaging.Sample.Producer.Infrastructure.csproj" />
         <ProjectReference Include="..\GM.Messaging.Sample.Persistence\GM.Messaging.Sample.Persistence.csproj" />
     </ItemGroup>

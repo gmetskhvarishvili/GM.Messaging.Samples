@@ -1,3 +1,4 @@
+using GM.Messaging.Persistence.Protection;
 using GM.Messaging.Persistence;
 using GM.Messaging.Sample.ConsumerB.Domain.BoundedContext.MessagingBoundedContext.InboxMessageAggregate;
 using GM.Messaging.Sample.ConsumerB.Domain.BoundedContext.MessagingBoundedContext.InboxMessageAggregate.Interfaces;
@@ -14,14 +15,15 @@ public static class DependencyInjection
 {
     public static IServiceCollection AddPersistence(this IServiceCollection services, IConfiguration configuration)
     {
-        services.AddDbContext<ConsumerDbContext>(options =>
+        services.AddDbContext<ConsumerDbContext>((serviceProvider, options) =>
         {
             options.UseNpgsql(configuration.GetConnectionString("ApplicationDatabase"),
                 o =>
                 {
                     o.UseQuerySplittingBehavior(QuerySplittingBehavior.SplitQuery);
                     o.CommandTimeout(60);
-                }).UseSnakeCaseNamingConvention();
+                }).UseSnakeCaseNamingConvention()
+                .UseGMMessaging(serviceProvider); // GM.Messaging's interceptors (payload protection, if registered)
         });
 
         services.AddTransient<IInboxMessageRepository, InboxMessageRepository>();
