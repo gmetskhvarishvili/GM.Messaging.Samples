@@ -117,10 +117,11 @@ jobs:
             for i in $(seq 1 30); do [ "$(prom "$1")" = "$2" ] && return 0; sleep 2; done
             echo "FAILED: $1 (expected $2, got $(prom "$1"))"
             curl -s http://localhost:9090/api/v1/label/__name__/values | jq -c '.data | map(select(startswith("gm_")))'
+            curl -s -G --data-urlencode 'match[]={__name__=~"gm_messaging_outbox_pending.*"}' http://localhost:9090/api/v1/series | jq -c '.data'
             exit 1
           }
-          # Two relay processes report their outbox gauge.
-          check 'count(count by (service_instance_id) ({__name__=~"gm_messaging_outbox_pending.*"}))' 2
+          # Two relay processes (the producer worker replicas) report their outbox gauge.
+          check 'count(count by (service_instance_id) ({__name__=~"gm_messaging_outbox_pending.*", job="GM.Messaging.Sample.Producer.Worker"}))' 2
           # Nine events (six above, three in the wake-up rounds), each published by exactly one relay.
           check 'sum({__name__=~"gm_messaging_outbox_published.*_total"})' 9
           # The consumers handled events, and none saw an event twice (a duplicate publish would show here).
