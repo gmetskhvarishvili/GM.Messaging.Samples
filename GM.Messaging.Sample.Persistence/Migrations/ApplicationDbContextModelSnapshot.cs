@@ -129,6 +129,10 @@ namespace GM.Messaging.Sample.Persistence.Migrations
                         .HasColumnType("timestamp with time zone")
                         .HasColumnName("created_at_utc");
 
+                    b.Property<DateTime?>("DeadLetteredAtUtc")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("dead_lettered_at_utc");
+
                     b.Property<string>("Error")
                         .HasMaxLength(2000)
                         .HasColumnType("character varying(2000)")
@@ -139,6 +143,19 @@ namespace GM.Messaging.Sample.Persistence.Migrations
                         .HasMaxLength(500)
                         .HasColumnType("character varying(500)")
                         .HasColumnName("event_type");
+
+                    b.Property<string>("LockedBy")
+                        .HasMaxLength(200)
+                        .HasColumnType("character varying(200)")
+                        .HasColumnName("locked_by");
+
+                    b.Property<DateTime?>("LockedUntilUtc")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("locked_until_utc");
+
+                    b.Property<DateTime?>("NextAttemptAtUtc")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("next_attempt_at_utc");
 
                     b.Property<string>("Payload")
                         .IsRequired()
@@ -155,6 +172,11 @@ namespace GM.Messaging.Sample.Persistence.Migrations
                         .HasDefaultValue(0)
                         .HasColumnName("retry_count");
 
+                    b.Property<string>("TraceParent")
+                        .HasMaxLength(128)
+                        .HasColumnType("character varying(128)")
+                        .HasColumnName("trace_parent");
+
                     b.Property<Guid?>("UserId")
                         .HasColumnType("uuid")
                         .HasColumnName("user_id");
@@ -167,6 +189,9 @@ namespace GM.Messaging.Sample.Persistence.Migrations
 
                     b.HasIndex("UserId")
                         .HasDatabaseName("ix_outbox_messages_user_id");
+
+                    b.HasIndex("ProcessedAtUtc", "DeadLetteredAtUtc", "CreatedAtUtc")
+                        .HasDatabaseName("ix_outbox_messages_pending");
 
                     b.ToTable("outbox_messages", "messaging");
                 });
