@@ -135,33 +135,44 @@ jobs:
           ADMIN_KEY: sample-admin-key   # Admin__ApiKey in docker-compose.yml
         run: |
           set -e
+          # An admin call with the key; on anything but 2xx it prints the status, the body and the host's logs.
+          admin() {
+            local code
+            code=$(curl -s -o /tmp/admin-body -w '%{http_code}' -H "X-Admin-Key: $ADMIN_KEY" "$@")
+            if [ "${code:0:1}" != "2" ]; then
+              echo "FAILED $* -> HTTP $code: $(cat /tmp/admin-body)" >&2
+              docker compose logs --tail 60 >&2
+              return 1
+            fi
+            cat /tmp/admin-body
+          }
           # GM.Messaging.AspNetCore's endpoints require the messaging-admin policy: no key or a wrong one is refused.
           [ "$(curl -s -o /dev/null -w '%{http_code}' http://localhost:8080/admin/messaging/outbox)" = "401" ]
           [ "$(curl -s -o /dev/null -w '%{http_code}' -H 'X-Admin-Key: wrong' http://localhost:8082/admin/messaging/inbox)" = "401" ]
           # Every host maps what it has: the producer workers their outbox, ConsumerA its inbox (the XXX order).
-          curl -sf -H "X-Admin-Key: $ADMIN_KEY" http://localhost:8083/admin/messaging/outbox | jq -e '.pending == 0'
-          curl -sf -H "X-Admin-Key: $ADMIN_KEY" http://localhost:8081/admin/messaging/inbox/dead-letters | jq -e 'length == 1 and .[0].retriedByInboxWorker == false'
+          admin http://localhost:8083/admin/messaging/outbox | jq -e '.pending == 0'
+          admin http://localhost:8081/admin/messaging/inbox/dead-letters | jq -e 'length == 1 and .[0].retriedByInboxWorker == false'
           # Outbox (API): nothing pending or dead-lettered.
-          curl -sf -H "X-Admin-Key: $ADMIN_KEY" http://localhost:8080/admin/messaging/outbox | jq -e '.pending == 0 and .deadLettered == 0'
-          curl -sf -H "X-Admin-Key: $ADMIN_KEY" http://localhost:8080/admin/messaging/outbox/dead-letters | jq -e 'length == 0'
+          admin http://localhost:8080/admin/messaging/outbox | jq -e '.pending == 0 and .deadLettered == 0'
+          admin http://localhost:8080/admin/messaging/outbox/dead-letters | jq -e 'length == 0'
           curl -s http://localhost:8080/health/ready | grep -q 'messaging-backlog'
           # ConsumerB's inbox: the bounced welcome email is its one dead letter.
-          curl -sf -H "X-Admin-Key: $ADMIN_KEY" http://localhost:8082/admin/messaging/inbox | jq -e '.deadLettered == 1'
-          curl -sf -H "X-Admin-Key: $ADMIN_KEY" http://localhost:8082/admin/messaging/inbox/dead-letters | jq -e 'length == 1 and .[0].consumerName == "consumer-b"'
+          admin http://localhost:8082/admin/messaging/inbox | jq -e '.deadLettered == 1'
+          admin http://localhost:8082/admin/messaging/inbox/dead-letters | jq -e 'length == 1 and .[0].consumerName == "consumer-b"'
           # Nothing was published without a queue to receive it.
-          curl -sf -H "X-Admin-Key: $ADMIN_KEY" http://localhost:8082/admin/messaging/broker/unrouted | jq -e '.messages == 0'
+          admin http://localhost:8082/admin/messaging/broker/unrouted | jq -e '.messages == 0'
           # The XXX order reached the broker's dead-letter queue after ConsumerA's last retry.
           for i in $(seq 1 30); do
-            if curl -sf -H "X-Admin-Key: $ADMIN_KEY" http://localhost:8082/admin/messaging/broker/dead-letters | jq -e '.messages >= 1' >/dev/null; then break; fi
+            if admin http://localhost:8082/admin/messaging/broker/dead-letters | jq -e '.messages >= 1' >/dev/null; then break; fi
             if [ "$i" = 30 ]; then echo "The XXX order never reached gm.dead-letters"; exit 1; fi
             sleep 2
           done
-          curl -sf -H "X-Admin-Key: $ADMIN_KEY" http://localhost:8082/admin/messaging/broker/dead-letters/messages | jq -e 'any(.[]; .body | contains("XXX"))'
+          admin http://localhost:8082/admin/messaging/broker/dead-letters/messages | jq -e 'any(.[]; .body | contains("XXX"))'
           # A filtered dry run counts the XXX order without replaying it; one for another queue matches nothing.
-          before=$(curl -sf -H "X-Admin-Key: $ADMIN_KEY" http://localhost:8082/admin/messaging/broker/dead-letters | jq '.messages')
-          curl -sf -H "X-Admin-Key: $ADMIN_KEY" -X POST "http://localhost:8082/admin/messaging/broker/dead-letters/replay?queue=gm.consumer-a.orders&dryRun=true" | jq -e '.matched >= 1 and .transferred == 0'
-          curl -sf -H "X-Admin-Key: $ADMIN_KEY" -X POST "http://localhost:8082/admin/messaging/broker/dead-letters/replay?queue=no-such-queue" | jq -e '.matched == 0 and .transferred == 0'
-          [ "$(curl -sf -H "X-Admin-Key: $ADMIN_KEY" http://localhost:8082/admin/messaging/broker/dead-letters | jq '.messages')" = "$before" ]
+          before=$(admin http://localhost:8082/admin/messaging/broker/dead-letters | jq '.messages')
+          admin -X POST "http://localhost:8082/admin/messaging/broker/dead-letters/replay?queue=gm.consumer-a.orders&dryRun=true" | jq -e '.matched >= 1 and .transferred == 0'
+          admin -X POST "http://localhost:8082/admin/messaging/broker/dead-letters/replay?queue=no-such-queue" | jq -e '.matched == 0 and .transferred == 0'
+          [ "$(admin http://localhost:8082/admin/messaging/broker/dead-letters | jq '.messages')" = "$before" ]
           # Every worker's readiness includes its backlog check.
           for port in 8081 8082 8083 8084; do curl -s "http://localhost:$port/health/ready" | grep -q 'messaging-backlog'; done
 
