@@ -30,6 +30,10 @@ public static class DependencyInjection
                 .UseGMMessaging(serviceProvider);
         });
 
+        // The key ring for [SensitiveData] values (Messaging:SensitiveData): UserRegistered's email and name are
+        // encrypted in the outbox and on RabbitMQ.
+        services.AddGMSensitiveData(configuration);
+
         services.AddTransient<IOutboxMessageRepository, OutboxMessageRepository>();
         services.AddTransient<IUnitOfWork, UnitOfWork.UnitOfWork>();
 

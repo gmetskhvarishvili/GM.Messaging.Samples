@@ -12,7 +12,7 @@ docker compose up -d --build
 | http://localhost:8080/health/ready | API readiness: database + outbox backlog |
 | http://localhost:8081/health/ready, :8082, :8083 | Consumer A, consumer B, producer worker readiness: database, RabbitMQ, backlog |
 | http://localhost:8080…8084/admin/messaging/... | GM.Messaging's admin endpoints on every host (outbox, inbox, broker queues) |
-| http://localhost:15672 | RabbitMQ management (guest/guest) |
+| http://localhost:15672 | RabbitMQ management (gm-admin / gm-admin-secret) |
 | http://localhost:16686 | Jaeger traces |
 | http://localhost:9090 | Prometheus metrics |
 
@@ -88,6 +88,32 @@ curl -H "$ADMIN" -X POST "http://localhost:8082/admin/messaging/broker/unrouted/
 
 An existing RabbitMQ that already has the `gm.events` exchange without that argument refuses to redeclare
 it: delete the exchange once (the services recreate it), or set `Messaging:RabbitMq:UnroutedExchange` to `""`.
+
+## Security
+
+**The broker.** RabbitMQ accepts only TLS (port 5671; the plain AMQP port is closed). On first start
+`deploy/tls/generate.sh` creates a sample CA and a certificate for `rabbitmq` and `localhost` in
+`deploy/tls/certs` (git-ignored), and the services trust that CA through
+`Messaging:RabbitMq:TlsCaCertificatePath`. Each service has its own RabbitMQ user, created by
+`deploy/rabbitmq/setup.sh`, limited to what it uses:
+
+| User | May use |
+| --- | --- |
+| `gm-api` | publish to the wake-up exchange; reads no queue |
+| `gm-producer` | the events exchange, the unrouted and dead-letter queues, wake-ups |
+| `gm-consumer-a`, `gm-consumer-b` | the events exchange, the unrouted and dead-letter queues, and their own queues only |
+
+The administrator (`gm-admin`) is for the management UI. In production, the certificates come from your
+CA, passwords from a secret store, the management UI stays off public networks, and the broker's disks are
+encrypted.
+
+**Personal data in events.** Events carry ids where that's enough. `UserRegistered` needs the user's email
+and name (for the welcome email and the activity feed), so they're `[SensitiveData]`: GM.Messaging encrypts
+them with the key ring in `Messaging:SensitiveData` wherever the event is written (outbox and inbox rows,
+messages on RabbitMQ, dead letters), and handlers get the plain values. Every host has the same key ring;
+to rotate, add a key, make it current, and keep the old one while old messages may still be read. For
+erasure requests, GM.Messaging can also encrypt each person's data with their own key and delete it
+(`[DataSubject]`, `AddGMSubjectKeys`); this sample doesn't use that.
 
 ## Health
 

@@ -28,6 +28,18 @@ public class OutboxMessageTests
     }
 
     [Fact]
+    public void From_UserRegistered_KeepsTheEmailAndNameOutOfThePayload()
+    {
+        var outbox = OutboxMessage.From(new UserRegisteredIntegrationEvent(Guid.NewGuid(), "ana@example.test", "Ana Beridze"));
+
+        Assert.DoesNotContain("ana@example.test", outbox.Payload, StringComparison.Ordinal);
+        Assert.DoesNotContain("Beridze", outbox.Payload, StringComparison.Ordinal);
+        Assert.Contains("gmenc:", outbox.Payload, StringComparison.Ordinal);
+        var read = (UserRegisteredIntegrationEvent)IntegrationEventSerializer.Deserialize(outbox.Payload, typeof(UserRegisteredIntegrationEvent), outbox.EventVersion);
+        Assert.Equal(("ana@example.test", "Ana Beridze"), (read.Email, read.Name));
+    }
+
+    [Fact]
     public void From_OrderAndPaymentEvents_ShareTheOrdersOrderingKey()
     {
         var orderId = Guid.NewGuid();

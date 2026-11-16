@@ -45,7 +45,7 @@ docker compose up -d --build
 | What | Where |
 | --- | --- |
 | API + Swagger | http://localhost:8080 |
-| RabbitMQ management | http://localhost:15672 (guest/guest) |
+| RabbitMQ management | http://localhost:15672 (gm-admin / gm-admin-secret); AMQP is TLS-only on 5671 |
 | Jaeger (traces) | http://localhost:16686 |
 | Prometheus (metrics) | http://localhost:9090, e.g. `gm_messaging_outbox_published_total` |
 | Consumer A / B, producer worker | http://localhost:8081, :8082, :8083: `/health/ready` |
@@ -78,6 +78,8 @@ Every GM.Messaging feature, each where a real service would use it:
 | **Traces and metrics** | OpenTelemetry in every host (`AddSampleTelemetry`) → OpenTelemetry collector → Jaeger and Prometheus |
 | **One consumer name per service** | `Messaging:Inbox:ConsumerName`; handlers call `ProcessAsync(message, handler)` |
 | **Retention** | Published outbox rows go after 7 days, handled inbox rows after 30 |
+| **Personal data in events**: only where needed, and encrypted | `UserRegistered.Email`/`Name` are `[SensitiveData]` (`AddGMSensitiveData`, key ring in `Messaging:SensitiveData`): ciphertext in the outbox, the inbox and on RabbitMQ; other events carry ids only |
+| **A secured broker**: TLS only, a user per service | A sample CA (`deploy/tls/generate.sh`) and `Messaging:RabbitMq:TlsCaCertificatePath`; per-service users with scoped permissions (`deploy/rabbitmq/setup.sh`) |
 
 [docs/architecture.md](docs/architecture.md) walks one event through the system and lists what happens
 on each kind of failure; [docs/operations.md](docs/operations.md) covers dead letters, health, traces,
