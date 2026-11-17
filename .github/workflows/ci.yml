@@ -42,7 +42,7 @@ jobs:
           ready() { curl -sf "http://localhost:$1/health/ready" >/dev/null; }
           for i in $(seq 1 90); do
             ready 8080 && ready 8081 && ready 8082 && ready 8083 && ready 8084 \
-              && [ "$(curl -s -u gm-admin:gm-admin-secret http://localhost:15672/api/queues | jq '[.[] | select(.name | startswith("gm.consumer-"))] | length')" = "6" ] \
+              && [ "$(curl -s -u gm-admin:gm-admin-secret http://localhost:15672/api/queues | jq '[.[] | select(.name | startswith("gm.consumer-"))] | length')" = "8" ] \
               && exit 0
             sleep 2
           done
@@ -306,7 +306,18 @@ jobs:
           [ "$(curl -s -o /dev/null -w '%{http_code}' -X DELETE -H "X-Admin-Key: $ADMIN_KEY" "http://localhost:8080/admin/messaging/subject-keys/$user")" = "404" ]
           [ "$(q messaging_keys "select count(*) from messaging.subject_keys where subject_id = '$user'")" = "0" ]
           # The event is still in the outbox and the inboxes, but its email and name can't be decrypted any more
-          # (the stack tests read it back). Copies a service made itself (ConsumerB's welcome_emails) are its own to delete.
+          # (the stack tests read it back). The erasure also went out as gm.subject-forgotten (once per request, so
+          # twice here), and each consumer deleted the copy it had made: ConsumerB its welcome-email row, ConsumerA
+          # the email in its activity feed (the activity itself stays).
+          [ "$(q messaging_api "select count(*) from messaging.outbox_messages where event_type = 'gm.subject-forgotten' and payload like '%$user%'")" = "2" ]
+          for i in $(seq 1 30); do
+            [ "$(q messaging_consumer_b "select count(*) from application.welcome_emails where user_id = '$user'")" = "0" ] \
+              && [ "$(q messaging_consumer_a "select count(*) from application.customer_activities where reference = 'erase-me@example.test'")" = "0" ] \
+              && break
+            [ "$i" = 30 ] && { echo "The consumers didn't erase their copies"; docker compose logs --tail 60 consumer-a consumer-b; exit 1; }
+            sleep 2
+          done
+          [ "$(q messaging_consumer_a "select count(*) from application.customer_activities where customer_id = '$user' and reference = '[erased]'")" = "1" ]
 
       - name: Key rotation — switch to the Data Protection-protected key, then re-wrap every user's key
         env:

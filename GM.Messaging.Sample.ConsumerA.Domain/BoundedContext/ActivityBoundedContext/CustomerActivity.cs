@@ -31,4 +31,11 @@ public sealed class CustomerActivity : IAggregateRoot
             Amount = amount,
             OccurredAtUtc = occurredAtUtc,
         };
+
+    /// <summary>An erasure request: the activity stays (it's the customer's history), the personal reference goes.</summary>
+    public void ErasePersonalData()
+    {
+        if (Kind == "user-registered")
+            Reference = "[erased]";
+    }
 }
