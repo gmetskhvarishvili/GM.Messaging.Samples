@@ -25,4 +25,19 @@ public class InventoryController : BaseController
         var result = await Mediator.Send(command, cancellationToken);
         return Ok(result);
     }
+
+    /// <summary>A bulk import: one large event that travels through the claim check.</summary>
+    [HttpPost("import", Name = nameof(ImportInventory))]
+    [ProducesResponseType(typeof(ImportInventoryResult), StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status400BadRequest)]
+    public async Task<IActionResult> ImportInventory(
+        [FromBody] ImportInventoryRequestModel request,
+        [FromServices] IValidator<ImportInventoryRequestModel> validator,
+        CancellationToken cancellationToken)
+    {
+        await validator.ValidateAndThrowAsync(request, cancellationToken);
+        var command = new ImportInventoryCommand(request.ImportId, request.Warehouse!,
+            request.Items.Select(i => new GM.Messaging.Sample.Domain.Events.Inventory.ImportedStock(i.ProductId, i.Quantity)).ToList());
+        return Ok(await Mediator.Send(command, cancellationToken));
+    }
 }

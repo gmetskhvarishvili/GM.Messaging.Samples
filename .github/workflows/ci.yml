@@ -140,6 +140,17 @@ jobs:
           queues=$(curl -s -u gm-admin:gm-admin-secret http://localhost:15672/api/queues)
           echo "$queues" | jq -e '[.[] | select(.durable and (.name | startswith("gm."))) | .type] | length == 10 and all(. == "quorum")' \
             || { echo "$queues" | jq -c '[.[] | {name, type, durable}]'; exit 1; }
+          # Queue limits: each consumer queue holds at most 100000 messages and refuses more (events then wait in the
+          # outbox); the dead-letter and unrouted queues drop messages after two weeks.
+          echo "$queues" | jq -e '[.[] | select(.name | startswith("gm.consumer-")) | .arguments] | length == 8
+              and all(."x-max-length" == 100000 and ."x-overflow" == "reject-publish")' \
+            || { echo "$queues" | jq -c '[.[] | {name, arguments}]'; exit 1; }
+          echo "$queues" | jq -e '[.[] | select(.name == "gm.dead-letters" or .name == "gm.unrouted") | .arguments."x-message-ttl"] == [1209600000, 1209600000]'
+          # Consumer throughput: ConsumerB's inventory queue has a prefetch of 20 (the others 50, ConsumerTopology:PrefetchCount).
+          curl -s -u gm-admin:gm-admin-secret http://localhost:15672/api/queues/%2F/gm.consumer-b.inventory \
+            | jq -e '[.consumer_details[].prefetch_count] | length > 0 and all(. == 20)'
+          curl -s -u gm-admin:gm-admin-secret http://localhost:15672/api/queues/%2F/gm.consumer-b.users \
+            | jq -e '[.consumer_details[].prefetch_count] | length > 0 and all(. == 50)'
 
       - name: A save in the API is published at once, not at the relays' next 30-second poll
         run: |
@@ -289,6 +300,52 @@ jobs:
             sleep 2
           done
           echo "ConsumerB didn't handle the version-1 event"; docker compose logs --tail 60 consumer-b; exit 1
+
+      - name: Scheduled event — a reminder is saved now and published only when it's due
+        env:
+          ADMIN_KEY: sample-admin-key
+        run: |
+          set -e
+          q() { docker compose exec -T postgres psql -U postgres -d "$1" -tAc "$2"; }
+          admin() { curl -sf -H "X-Admin-Key: $ADMIN_KEY" "$@"; }
+          customer=$(cat /proc/sys/kernel/random/uuid)
+          start=$(date +%s)
+          curl -sf -H 'Content-Type: application/json' http://localhost:8080/api/v1/reminders \
+            -d "{\"customerId\":\"$customer\",\"text\":\"Your order ships tomorrow\",\"sendInSeconds\":25}" > /dev/null
+          # In the outbox, waiting: the backlog counts it as scheduled, not as a late pending message.
+          [ "$(q messaging_api "select count(*) from messaging.outbox_messages where event_type = 'customers.reminder-due' and processed_at_utc is null and next_attempt_at_utc > now()")" = "1" ]
+          admin http://localhost:8080/admin/messaging/outbox | jq -e '.scheduled == 1 and .pending == 0'
+          sleep 10
+          [ "$(q messaging_consumer_a "select count(*) from application.customer_activities where customer_id = '$customer'")" = "0" ]
+          # Then it goes out (at the relays' first poll after it's due) and ConsumerA records it.
+          for i in $(seq 1 60); do
+            [ "$(q messaging_consumer_a "select count(*) from application.customer_activities where customer_id = '$customer' and kind = 'reminder'")" = "1" ] && break
+            [ "$i" = 60 ] && { echo "The reminder never arrived"; docker compose logs --tail 60 producer-worker consumer-a; exit 1; }
+            sleep 2
+          done
+          elapsed=$(( $(date +%s) - start ))
+          echo "Delivered after ${elapsed}s (due after 25s)"
+          [ "$elapsed" -ge 25 ]
+
+      - name: Large event — a bulk stock import travels through the claim check
+        run: |
+          set -e
+          q() { docker compose exec -T postgres psql -U postgres -d "$1" -tAc "$2"; }
+          # 3000 items: about 200 KB, above the 64 KB Messaging:LargeMessages:OffloadAboveBytes.
+          jq -n --arg id "$(cat /proc/sys/kernel/random/uuid)" \
+            '{importId:$id, warehouse:"BULK-1", items:[range(3000) | {productId:("00000000-0000-4000-8000-" + ("000000000000" + tostring)[-12:]), quantity:.}]}' > /tmp/import.json
+          curl -sf -H 'Content-Type: application/json' http://localhost:8080/api/v1/inventory/import -d @/tmp/import.json | jq -e '.items == 3000'
+          [ "$(q messaging_api "select count(*) from messaging.outbox_messages where event_type = 'inventory.inventory-imported' and length(payload) > 65536")" = "1" ]
+          for i in $(seq 1 60); do
+            [ "$(q messaging_consumer_b "select count(*) from application.stock_levels where warehouse_code = 'BULK-1'")" = "3000" ] && break
+            [ "$i" = 60 ] && { echo "The import wasn't applied"; docker compose logs --tail 60 producer-worker consumer-b; exit 1; }
+            sleep 2
+          done
+          [ "$(q messaging_consumer_b "select quantity from application.stock_levels where warehouse_code = 'BULK-1' and product_id = '00000000-0000-4000-8000-000000002999'")" = "2999" ]
+          # The body went to the shared claim-check volume; RabbitMQ carried only a reference.
+          files=$(docker compose exec -T consumer-b sh -c 'find /claim-checks -type f | wc -l')
+          echo "claim-check files: $files"
+          [ "$files" -ge 1 ]
 
       - name: Erasure — deleting a user's key makes their personal data unreadable everywhere
         env:

@@ -21,6 +21,8 @@ COPY --from=build /app/publish .
 # A fixed name for whichever host this image runs, started directly (a shell would drop environment
 # variables whose names aren't shell identifiers, such as ConnectionStrings__ApplicationDatabase).
 RUN ln -s "/app/$PROJECT" /app/entrypoint
+# The claim-check directory (large event bodies), owned by the app user so a new named volume mounted here is writable.
+RUN mkdir -p /claim-checks && chown $APP_UID /claim-checks
 USER $APP_UID
 # Every host listens on 8080 in the container (the workers for their health and admin endpoints).
 ENV ASPNETCORE_URLS=http://+:8080
