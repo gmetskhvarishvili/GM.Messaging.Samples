@@ -14,6 +14,8 @@
         <PackageReference Include="FluentValidation.DependencyInjectionExtensions" Version="12.1.1" />
         <PackageReference Include="GM.API" Version="2.4.0" />
         <PackageReference Include="GM.Mediator" Version="2.0.1" />
+        <PackageReference Include="GM.HealthChecks.EntityFramework" Version="1.3.0" />
+        <PackageReference Include="GM.HealthChecks.Messaging" Version="1.3.0" />
         <PackageReference Include="Mapster" Version="10.0.12" />
         <PackageReference Include="Microsoft.AspNetCore.OpenApi" Version="10.0.11" />
         <PackageReference Include="Microsoft.EntityFrameworkCore.Design" Version="10.0.10">
@@ -29,7 +31,6 @@
     <ItemGroup>
         <ProjectReference Include="..\GM.Messaging.Sample.Application\GM.Messaging.Sample.Application.csproj" />
         <ProjectReference Include="..\GM.Messaging.Sample.Persistence\GM.Messaging.Sample.Persistence.csproj" />
-        <ProjectReference Include="..\GM.Messaging.Sample.Infrastructure\GM.Messaging.Sample.Infrastructure.csproj" />
     </ItemGroup>
 
     <ItemGroup>

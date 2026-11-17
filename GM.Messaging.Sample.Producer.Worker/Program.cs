@@ -1,3 +1,7 @@
+using GM.Messaging.AspNetCore;
+using GM.HealthChecks;
+using GM.HealthChecks.EntityFramework;
+using GM.HealthChecks.Messaging;
 using GM.Messaging.Persistence;
 using GM.Messaging.Sample.Domain.Events;
 using GM.Messaging.Sample.Domain.Events.Inventory;
@@ -16,9 +20,25 @@ builder.Services.AddGMIntegrationEvents(events => events
 builder.Services.AddInfrastructure(builder.Configuration);
 builder.Services.AddPersistence(builder.Configuration, runOutboxRelay: true);
 
+// /health/live, /health/ready (database, RabbitMQ, the outbox backlog) and /health/startup.
+builder.Services.AddGMHealthChecks()
+    .AddGMDatabaseCheck<ApplicationDbContext>()
+    .AddGMMessagingCheck()
+    .AddGMMessagingBacklogCheck(backlog => backlog.MaxPendingAge = TimeSpan.FromMinutes(2))
+    // What waits on RabbitMQ: consumer queues near their limit, dead letters, unrouted messages (GM.Messaging's queue monitor).
+    .AddGMBrokerQueueCheck();
+
 var app = builder.Build();
 
-app.MapInfrastructure();
+app.MapGMHealthChecks();
+// GM.Messaging's admin endpoints under /admin/messaging (whatever this host has: outbox, inbox, broker queues,
+// subject keys). The sample has no login, so they're open; a real service passes its own policy:
+// admin.AuthorizationPolicy = "your-policy". Broker message bodies show with [SensitiveData] masked.
+app.MapGMMessagingAdmin(admin =>
+{
+    admin.AllowAnonymous = true;
+    admin.MessageBodies = BrokerMessageBodies.Redacted;
+});
 
 // The API owns the messaging_api database and applies its migrations. Wait for them instead of racing it:
 // two processes migrating one database at once can both try to create the same tables.

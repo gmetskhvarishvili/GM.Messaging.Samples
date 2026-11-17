@@ -17,7 +17,6 @@
     <Project Path="GM.Messaging.Sample.Application/GM.Messaging.Sample.Application.csproj" />
     <Project Path="GM.Messaging.Sample.Common/GM.Messaging.Sample.Common.csproj" />
     <Project Path="GM.Messaging.Sample.Domain/GM.Messaging.Sample.Domain.csproj" />
-    <Project Path="GM.Messaging.Sample.Infrastructure/GM.Messaging.Sample.Infrastructure.csproj" />
     <Project Path="GM.Messaging.Sample.Persistence/GM.Messaging.Sample.Persistence.csproj" />
     <Project Path="GM.Messaging.Sample.Producer.Infrastructure/GM.Messaging.Sample.Producer.Infrastructure.csproj" />
     <Project Path="GM.Messaging.Sample.Producer.Worker/GM.Messaging.Sample.Producer.Worker.csproj" />

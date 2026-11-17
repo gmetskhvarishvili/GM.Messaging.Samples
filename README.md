@@ -19,14 +19,12 @@ consumers that receive them over **RabbitMQ** with an **inbox** for de-duplicati
 ```
 GM.Messaging.Samples/
 ├── Producer
-│   ├── GM.Messaging.Sample.API             # Web API — commands write events to the outbox
+│   ├── GM.Messaging.Sample.API             # Web API — commands write events to the outbox; admin; health
 │   ├── GM.Messaging.Sample.Application      # CQRS commands + validators (Create Order/Payment/…)
 │   ├── GM.Messaging.Sample.Domain           # Integration events + the outbox aggregate
-│   ├── GM.Messaging.Sample.Infrastructure   # The API's health checks and admin endpoints
 │   ├── GM.Messaging.Sample.Persistence      # EF Core persistence (PostgreSQL)
 │   ├── GM.Messaging.Sample.Common           # Shared resources (exceptions)
-│   ├── GM.Messaging.Sample.Producer.Infrastructure  # The worker's GM.Messaging, health checks and admin endpoints
-│   └── GM.Messaging.Sample.Producer.Worker  # The outbox relay (leased, confirmed, retried, ordered)
+│   └── GM.Messaging.Sample.Producer.Worker  # The outbox relay (leased, confirmed, retried, ordered); health
 ├── ConsumerA (Domain / Infrastructure / Persistence / Worker)   # customer activity via ProcessAsync
 ├── ConsumerB (Domain / Infrastructure / Persistence / Worker)   # order timeline, stock, inbox-worker emails
 ├── tests/
@@ -75,7 +73,7 @@ Every GM.Messaging feature, each where a real service would use it:
 | **Inbox worker** for slow work, with backoff and dead-lettering | ConsumerB's welcome emails (`IngestAsync` + `IInboxHandler`); `@bounce.test` addresses fail |
 | **Admin endpoints** for the outbox, inbox, broker queues and subject keys, behind your authorization policy | `MapGMMessagingAdmin()` (GM.Messaging.AspNetCore) in every host under `/admin/messaging`; open in the sample (`AllowAnonymous`), behind your own policy in a real service. Message bodies show with `[SensitiveData]` masked (`BrokerMessageBodies.Redacted`) |
 | **No lost unrouted messages**: anything published with no queue bound is kept | The API's `ReturnRequested` has no consumer yet, so it waits in `gm.unrouted`; `POST /admin/messaging/broker/unrouted/move?exchange=gm.events` sends it on once a queue exists |
-| **Health checks** in every host: database, RabbitMQ, backlog, broker queues | `/health/ready`, set up in each host's Infrastructure (`AddGMDatabaseCheck`, `AddGMMessagingCheck`, `AddGMMessagingBacklogCheck`; the workers add `AddGMBrokerQueueCheck`) |
+| **Health checks** in every host: database, RabbitMQ, backlog, broker queues | `/health/ready` (`AddGMDatabaseCheck`, `AddGMMessagingCheck`, `AddGMMessagingBacklogCheck`; the workers add `AddGMBrokerQueueCheck`) |
 | **Broker queue depths**: what waits on RabbitMQ | GM.Messaging reads each worker's queues every 30 s for the broker queue health check |
 | **One consumer name per service** | `Messaging:Inbox:ConsumerName`; handlers call `ProcessAsync(message, handler)` |
 | **Retention** | Published outbox rows go after 7 days, handled inbox rows after 30 |
@@ -110,17 +108,15 @@ builder.Services.AddGMIntegrationEvents(events => events
 
 // Consumers: the inbox. Handlers can take ConsumerDbContext too: AddGMInbox has Wolverine resolve it
 // from the message's scope, so it's the same instance IInboxProcessor commits.
-builder.Services.AddInfrastructure(builder.Configuration);   // AddGMMessaging and the health checks
+builder.Services.AddInfrastructure(builder.Configuration);   // AddGMMessaging
 services.AddGMInbox<InboxMessage, ConsumerDbContext>();
 
 // ConsumerB: the inbox worker and its handler.
 builder.Services.AddGMInboxWorker<InboxMessage, ConsumerDbContext>();
 builder.Services.AddGMInboxHandler<UserRegisteredIntegrationEvent, SendWelcomeEmail>();
 
-// Every host, in its Infrastructure project (app.MapInfrastructure()): the health endpoints and
-// GM.Messaging's admin endpoints. The sample has no login, so they're open; a real service passes its policy.
-endpoints.MapGMHealthChecks();
-endpoints.MapGMMessagingAdmin(admin => admin.AuthorizationPolicy = "your-policy");
+// Every host: GM.Messaging's admin endpoints, behind your authorization policy.
+app.MapGMMessagingAdmin(admin => admin.AuthorizationPolicy = "your-policy");
 ```
 
 A consumer handler:
