@@ -32,13 +32,11 @@ public static class DependencyInjection
         services.AddTransient<IOutboxMessageRepository, OutboxMessageRepository>();
         services.AddTransient<IUnitOfWork, UnitOfWork.UnitOfWork>();
 
-        // Personal data in events: the key ring (Messaging:SensitiveData) and the per-person keys in the shared
-        // messaging_keys database (ConnectionStrings:SubjectKeys), which GM.Messaging creates at startup.
-        services.AddGMSensitiveData(configuration, subjectKeys: (db, connectionString) =>
-            db.UseNpgsql(connectionString).UseSnakeCaseNamingConvention());
-
-        // The outbox: administration (/admin/messaging/outbox), erasure events (gm.subject-forgotten), and the relay in
-        // the producer worker or, in the API, the wake-up that makes every relay publish at once.
+        // Everything GM.Messaging needs, in one call: the outbox (administration, erasure events, and the relay in the
+        // producer worker or, in the API, the wake-up that makes every relay publish at once), its save interceptors on
+        // ApplicationDbContext, and personal data from configuration: the key ring (Messaging:SensitiveData) and the
+        // per-person keys in the shared messaging_keys database (ConnectionStrings:SubjectKeys), on the same Npgsql and
+        // snake_case settings as ApplicationDbContext.
         services.AddGMOutbox<OutboxMessage, ApplicationDbContext>(configuration, relay: runOutboxRelay);
 
         return services;

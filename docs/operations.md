@@ -165,8 +165,9 @@ letters), and handlers get the plain values.
 **A key per person.** Each of those events names its person with `[DataSubject]`:
 `[DataSubject(nameof(UserId))]` on `UserRegistered` (an inherited property), and on
 `ReturnRequested.CustomerId`. Their values are encrypted with that person's own key, wrapped by the key ring
-in `Messaging:SensitiveData`. The keys live in the shared `messaging_keys` database. Every host registers it
-with `AddGMSensitiveData(configuration, subjectKeys: (db, cs) => db.UseNpgsql(cs))`, and GM.Messaging creates the database and its
+in `Messaging:SensitiveData`. The keys live in the shared `messaging_keys` database. `AddGMOutbox` and
+`AddGMInbox(configuration)` set it up in every host from `ConnectionStrings:SubjectKeys` (with the same Npgsql and
+snake_case settings as each host's own DbContext), and GM.Messaging creates the database and its
 `subject_keys` table at startup, so the sample has no DbContext or migration for it. The API creates a
 person's key before writing their first event (`EnsureKeyAsync`).
 
