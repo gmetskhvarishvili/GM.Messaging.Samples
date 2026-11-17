@@ -168,8 +168,8 @@ letters), and handlers get the plain values.
 in `Messaging:SensitiveData`. The keys live in the shared `messaging_keys` database. `AddGMOutbox` and
 `AddGMInbox(configuration)` set it up in every host from `ConnectionStrings:SubjectKeys` (with the same Npgsql and
 snake_case settings as each host's own DbContext), and GM.Messaging creates the database and its
-`subject_keys` table at startup, so the sample has no DbContext or migration for it. The API creates a
-person's key before writing their first event (`EnsureKeyAsync`).
+`subject_keys` table at startup, so the sample has no DbContext or migration for it. GM.Messaging creates a
+person's key the first time an event about them is written, from the event's `[DataSubject]`.
 
 **Erasure requests.** Deleting the person's key makes their data unreadable in every copy of every event:
 the outbox, both inboxes, dead letters and backups. Handlers reading those events get `null` for the
