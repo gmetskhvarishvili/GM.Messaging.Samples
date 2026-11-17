@@ -33,7 +33,7 @@ public class RequestReturnCommandHandler(IUnitOfWork unitOfWork)
     public async Task<RequestReturnResult> Handle(RequestReturnCommand request, CancellationToken cancellationToken)
     {
         var evt = new ReturnRequestedIntegrationEvent(request.ReturnId, request.OrderId, request.CustomerId, request.ContactEmail, request.Reason);
-        await unitOfWork.OutboxMessageRepository.AddAsync(OutboxMessage.From(evt), cancellationToken);
+        await unitOfWork.OutboxMessageRepository.AddAsync(OutboxMessage.Create(evt), cancellationToken);
         await unitOfWork.SaveChangesAsync(cancellationToken);
 
         return new RequestReturnResult(evt.EventId, evt.OccurredAtUtc);

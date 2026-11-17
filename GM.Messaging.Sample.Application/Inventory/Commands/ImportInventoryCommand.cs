@@ -25,7 +25,7 @@ public class ImportInventoryCommandHandler(IUnitOfWork unitOfWork) : IRequestHan
     public async Task<ImportInventoryResult> Handle(ImportInventoryCommand request, CancellationToken cancellationToken)
     {
         var evt = new InventoryImportedIntegrationEvent(request.ImportId, request.Warehouse, request.Items);
-        await unitOfWork.OutboxMessageRepository.AddAsync(OutboxMessage.From(evt), cancellationToken);
+        await unitOfWork.OutboxMessageRepository.AddAsync(OutboxMessage.Create(evt), cancellationToken);
         await unitOfWork.SaveChangesAsync(cancellationToken);
         return new ImportInventoryResult(evt.EventId, request.Items.Count);
     }

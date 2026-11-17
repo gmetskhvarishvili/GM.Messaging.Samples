@@ -63,7 +63,7 @@ Every GM.Messaging feature, each where a real service would use it:
 
 | Feature | Where |
 | --- | --- |
-| **Transactional outbox**: an event is saved with the change that raised it | API commands (`OutboxMessage.From`) |
+| **Transactional outbox**: an event is saved with the change that raised it | API commands (`OutboxMessage.Create`) |
 | **Leased relay** with publisher confirms, backoff retries and dead-lettering; safe to scale | Producer worker (`AddGMOutbox(..., relay: true)`); CI runs two with `--scale producer-worker=2` |
 | **Instant publish across processes**: a save in the API wakes the relays over RabbitMQ | API (`AddGMOutbox(..., relay: false)`); the relays poll only every 30 s, and CI checks events go out within seconds |
 | **Stable event names**, also used for routing | `[IntegrationEventName("orders.order-placed")]`; `ProducerTopology` routes by name |

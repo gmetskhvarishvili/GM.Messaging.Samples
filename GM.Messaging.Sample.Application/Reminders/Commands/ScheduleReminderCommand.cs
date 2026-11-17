@@ -28,7 +28,7 @@ public class ScheduleReminderCommandHandler(IUnitOfWork unitOfWork) : IRequestHa
         var evt = new ReminderDueIntegrationEvent(request.CustomerId, request.Text, dueAt.UtcDateTime);
 
         // Saved now, in this transaction; the relay publishes it once it's due.
-        var message = OutboxMessage.From(evt);
+        var message = OutboxMessage.Create(evt);
         message.PublishAt(dueAt);
         await unitOfWork.OutboxMessageRepository.AddAsync(message, cancellationToken);
         await unitOfWork.SaveChangesAsync(cancellationToken);

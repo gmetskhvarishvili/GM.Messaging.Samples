@@ -19,7 +19,7 @@ public class OutboxMessageTests
     {
         var evt = new OrderPlacedIntegrationEvent(Guid.NewGuid(), Guid.NewGuid(), 99.9m, "EUR");
 
-        var outbox = OutboxMessage.From(evt);
+        var outbox = OutboxMessage.Create(evt);
 
         Assert.Equal("orders.order-placed", outbox.EventType);
         Assert.Equal(typeof(OrderPlacedIntegrationEvent), IntegrationEventTypes.Resolve(outbox.EventType));
@@ -31,7 +31,7 @@ public class OutboxMessageTests
     [Fact]
     public void From_UserRegistered_KeepsTheEmailAndNameOutOfThePayload()
     {
-        var outbox = OutboxMessage.From(new UserRegisteredIntegrationEvent(Guid.NewGuid(), "ana@example.test", "Ana Beridze"));
+        var outbox = OutboxMessage.Create(new UserRegisteredIntegrationEvent(Guid.NewGuid(), "ana@example.test", "Ana Beridze"));
 
         Assert.DoesNotContain("ana@example.test", outbox.Payload, StringComparison.Ordinal);
         Assert.DoesNotContain("Beridze", outbox.Payload, StringComparison.Ordinal);
@@ -44,7 +44,7 @@ public class OutboxMessageTests
     public void From_UserRegistered_EncryptsWithTheUsersOwnKey()
     {
         var userId = Guid.NewGuid();
-        var outbox = OutboxMessage.From(new UserRegisteredIntegrationEvent(userId, "ana@example.test", "Ana"));
+        var outbox = OutboxMessage.Create(new UserRegisteredIntegrationEvent(userId, "ana@example.test", "Ana"));
 
         // UserId (inherited, named by [DataSubject(nameof(UserId))]) stays readable, once, and names whose key is used.
         Assert.Single(JsonElement.Parse(outbox.Payload).EnumerateObject(), p => p.Name.Equals("UserId", StringComparison.OrdinalIgnoreCase));
@@ -58,7 +58,7 @@ public class OutboxMessageTests
     public void From_ReturnRequested_EncryptsTheContactEmailWithTheCustomersKey()
     {
         var customerId = Guid.NewGuid();
-        var outbox = OutboxMessage.From(new ReturnRequestedIntegrationEvent(Guid.NewGuid(), Guid.NewGuid(), customerId, "ana@example.test", "Wrong size"));
+        var outbox = OutboxMessage.Create(new ReturnRequestedIntegrationEvent(Guid.NewGuid(), Guid.NewGuid(), customerId, "ana@example.test", "Wrong size"));
 
         Assert.Equal("returns.return-requested", outbox.EventType);
         Assert.DoesNotContain("ana@example.test", outbox.Payload, StringComparison.Ordinal);
@@ -71,9 +71,9 @@ public class OutboxMessageTests
     {
         var orderId = Guid.NewGuid();
 
-        var placed = OutboxMessage.From(new OrderPlacedIntegrationEvent(orderId, Guid.NewGuid(), 10m, "EUR"));
-        var paid = OutboxMessage.From(new PaymentProcessedIntegrationEvent(Guid.NewGuid(), orderId, 10m, "Succeeded"));
-        var registered = OutboxMessage.From(new UserRegisteredIntegrationEvent(Guid.NewGuid(), "a@b.test", "A"));
+        var placed = OutboxMessage.Create(new OrderPlacedIntegrationEvent(orderId, Guid.NewGuid(), 10m, "EUR"));
+        var paid = OutboxMessage.Create(new PaymentProcessedIntegrationEvent(Guid.NewGuid(), orderId, 10m, "Succeeded"));
+        var registered = OutboxMessage.Create(new UserRegisteredIntegrationEvent(Guid.NewGuid(), "a@b.test", "A"));
 
         Assert.Equal(orderId.ToString(), placed.OrderingKey);
         Assert.Equal(placed.OrderingKey, paid.OrderingKey);
@@ -91,7 +91,7 @@ public class OutboxMessageTests
             storedVersion: 1);
 
         Assert.Equal("TBS-1", evt.WarehouseCode);
-        Assert.Equal(2, OutboxMessage.From(evt).EventVersion);
+        Assert.Equal(2, OutboxMessage.Create(evt).EventVersion);
     }
 
     [Fact]
@@ -106,7 +106,7 @@ public class OutboxMessageTests
         using var source = new ActivitySource("sample-tests");
         using var request = source.StartActivity("request")!;
 
-        var outbox = OutboxMessage.From(new UserRegisteredIntegrationEvent(Guid.NewGuid(), "a@b.test", "A"));
+        var outbox = OutboxMessage.Create(new UserRegisteredIntegrationEvent(Guid.NewGuid(), "a@b.test", "A"));
 
         Assert.Equal(request.Id, outbox.TraceParent);
     }

@@ -3,4 +3,4 @@ using GM.Messaging.Sample.Domain.BoundedContext.MessagingBoundedContext.OutboxMe
 
 namespace GM.Messaging.Sample.Persistence.Configuration;
 
-public class SampleOutboxMessageConfiguration() : OutboxMessageConfiguration<OutboxMessage>("messaging");
+public class OutboxMessageConfiguration() : GMOutboxMessageConfiguration<OutboxMessage>("messaging");

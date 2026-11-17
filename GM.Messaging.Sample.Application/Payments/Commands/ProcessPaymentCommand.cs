@@ -37,7 +37,7 @@ public class ProcessPaymentCommandHandler(IUnitOfWork unitOfWork)
             request.Amount,
             request.Status);
 
-        await unitOfWork.OutboxMessageRepository.AddAsync(OutboxMessage.From(evt), cancellationToken);
+        await unitOfWork.OutboxMessageRepository.AddAsync(OutboxMessage.Create(evt), cancellationToken);
         await unitOfWork.SaveChangesAsync(cancellationToken);
 
         return new ProcessPaymentResult(evt.EventId, evt.OccurredAtUtc);

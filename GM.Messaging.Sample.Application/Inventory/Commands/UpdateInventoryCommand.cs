@@ -36,7 +36,7 @@ public class UpdateInventoryCommandHandler(IUnitOfWork unitOfWork)
             request.QuantityDelta,
             request.NewQuantity);
 
-        await unitOfWork.OutboxMessageRepository.AddAsync(OutboxMessage.From(evt), cancellationToken);
+        await unitOfWork.OutboxMessageRepository.AddAsync(OutboxMessage.Create(evt), cancellationToken);
         await unitOfWork.SaveChangesAsync(cancellationToken);
 
         return new UpdateInventoryResult(evt.EventId, evt.OccurredAtUtc);

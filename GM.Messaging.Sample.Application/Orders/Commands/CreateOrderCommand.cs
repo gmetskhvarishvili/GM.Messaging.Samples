@@ -38,7 +38,7 @@ public class CreateOrderCommandHandler(IUnitOfWork unitOfWork)
             request.TotalAmount,
             request.Currency);
 
-        await unitOfWork.OutboxMessageRepository.AddAsync(OutboxMessage.From(evt), cancellationToken);
+        await unitOfWork.OutboxMessageRepository.AddAsync(OutboxMessage.Create(evt), cancellationToken);
         await unitOfWork.SaveChangesAsync(cancellationToken);
 
         return new CreateOrderResult(evt.EventId, evt.OccurredAtUtc);
