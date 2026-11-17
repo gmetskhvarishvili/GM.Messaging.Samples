@@ -27,7 +27,7 @@ jobs:
 
   # The whole sample as docker-compose.yml runs it, with two relays, driven through the API: events go
   # outbox → relay → RabbitMQ → both consumers, and the checks read each consumer's database, the
-  # workers' health and admin endpoints, and the metrics in Prometheus.
+  # workers' health and admin endpoints, and RabbitMQ's management API.
   compose:
     runs-on: ubuntu-24.04
 
@@ -172,26 +172,19 @@ jobs:
             echo "Round $round: published after $(( $(date +%s) - start )) s"
           done
 
-      - name: Prometheus has both relays' metrics, every event published once, and no inbox duplicates
+      - name: Both relays ran, and every event was published once
         run: |
-          prom() { curl -s --data-urlencode "query=$1" http://localhost:9090/api/v1/query | jq -r '.data.result[0].value[1] // "none"'; }
-          check() {
-            for i in $(seq 1 30); do [ "$(prom "$1")" = "$2" ] && return 0; sleep 2; done
-            echo "FAILED: $1 (expected $2, got $(prom "$1"))"
-            curl -s http://localhost:9090/api/v1/label/__name__/values | jq -c '.data | map(select(startswith("gm_")))'
-            curl -s -G --data-urlencode 'match[]={__name__=~"gm_messaging_outbox_pending.*"}' http://localhost:9090/api/v1/series | jq -c '.data'
-            exit 1
-          }
-          # Two relay processes (the producer worker replicas) report their outbox gauge.
-          check 'count(count by (service_instance_id) ({__name__=~"gm_messaging_outbox_pending.*", job="GM.Messaging.Sample.Producer.Worker"}))' 2
-          # Nine events (six above, three in the wake-up rounds), each published by exactly one relay.
-          check 'sum({__name__=~"gm_messaging_outbox_published.*_total"})' 9
-          # The consumers handled events, and none saw an event twice (a duplicate publish would show here).
-          check 'sum({__name__=~"gm_messaging_inbox_processed.*_total"}) > bool 0' 1
-          check 'sum({__name__=~"gm_messaging_inbox_duplicates.*_total"}) or vector(0)' 0
-          # Broker queue depths (GM.Messaging's queue monitor): ConsumerB reports its inventory queue, with its 100000 limit.
-          check 'max({__name__=~"gm_messaging_broker_queue_limit.*", queue="gm.consumer-b.inventory"})' 100000
-          check 'count({__name__=~"gm_messaging_broker_queue_messages.*", queue="gm.consumer-b.inventory", role="consumer"}) > bool 0' 1
+          set -e
+          mq() { curl -s -u gm-admin:gm-admin-secret "http://localhost:15672/api/$1"; }
+          # Two relay processes (the producer worker replicas) are connected, each from its own container.
+          hosts=$(mq connections | jq '[.[] | select(.user == "gm-producer") | .peer_host] | unique | length')
+          [ "$hosts" -ge 2 ] || { echo "Relay containers connected: $hosts"; mq connections | jq -c '[.[] | {user, peer_host}]'; exit 1; }
+          # Nine events (six above, three in the wake-up rounds) went into gm.events, each exactly once: wait for the
+          # broker's statistics to catch up, then check the count stays at nine (a duplicate publish would push it past).
+          published() { mq exchanges/%2F/gm.events | jq '.message_stats.publish_in // 0'; }
+          for i in $(seq 1 30); do [ "$(published)" -ge 9 ] && break; sleep 2; done
+          sleep 6
+          [ "$(published)" = "9" ] || { echo "gm.events received $(published) messages, expected 9"; exit 1; }
 
       - name: The admin endpoints and health checks report the backlog and dead letters
         env:

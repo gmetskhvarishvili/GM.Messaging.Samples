@@ -2,8 +2,6 @@
 using GM.HealthChecks.EntityFramework;
 using GM.HealthChecks.Messaging;
 using GM.Messaging.Sample.Common.Admin;
-using GM.Messaging.Sample.Common.Telemetry;
-using OpenTelemetry.Trace;
 using GM.Messaging.Sample.Persistence;
 using GM.Messaging.Sample.Persistence.Context;
 using Microsoft.EntityFrameworkCore;
@@ -27,9 +25,6 @@ builder.Services.AddHealthChecks()
 // The outbox admin endpoints (GM.Messaging.AspNetCore) under /admin/messaging/outbox, behind the
 // messaging-admin policy (an X-Admin-Key header in this sample).
 builder.Services.AddSampleMessagingAdmin(builder.Configuration);
-
-// The request's trace continues through the outbox: the relay publishes each event in it.
-builder.Services.AddSampleTelemetry(builder.Configuration, tracing => tracing.AddAspNetCoreInstrumentation());
 
 var app = builder.Build();
 

@@ -1,16 +1,14 @@
-# The whole GM.Messaging sample: PostgreSQL, RabbitMQ, the observability stack (an OpenTelemetry collector,
-# Jaeger for traces, Prometheus for metrics), the API, the producer worker (outbox relay) and two consumers.
+# The whole GM.Messaging sample: PostgreSQL, RabbitMQ, the API, the producer worker (outbox relay) and two consumers.
+# (Traces and metrics come back with GM.Telemetry.)
 #
 #   docker compose up -d --build                                              # everything
 #   docker compose up -d --build --scale producer-worker=2                    # two relays (CI runs this)
-#   docker compose up -d postgres rabbitmq-setup otel-collector jaeger prometheus   # just the infrastructure
+#   docker compose up -d postgres rabbitmq-setup                              # just the infrastructure
 #
 # UIs and endpoints:
 #   API + Swagger           http://localhost:8080
 #   RabbitMQ management     http://localhost:15672 (gm-admin / gm-admin-secret)
 #   RabbitMQ (AMQP)         amqps://localhost:5671, TLS only (certificates from deploy/tls/generate.sh)
-#   Jaeger                  http://localhost:16686 (a request, the relay's publish and both consumers' handling are one trace)
-#   Prometheus              http://localhost:9090  (try gm_messaging_outbox_published_total or gm_messaging_inbox_processed_total)
 #   Consumer A              http://localhost:8081/health/ready
 #   Consumer B              http://localhost:8082/health/ready, /admin/messaging/inbox, /admin/messaging/broker/...
 #   Admin endpoints         /admin/messaging/... on every host, with the header X-Admin-Key: sample-admin-key
@@ -50,9 +48,6 @@ x-messaging: &messaging
   Messaging__SensitiveData__DataProtection__KeysPath: /dataprotection
   # Per-person keys ([DataSubject]), shared by every service that reads those events; GM.Messaging creates the table.
   ConnectionStrings__SubjectKeys: "Host=postgres;Port=5432;Database=messaging_keys;Username=postgres;Password=123456"
-  OTEL_EXPORTER_OTLP_ENDPOINT: http://otel-collector:4317
-  # Metrics every 5 s instead of every minute, so Prometheus (and CI) see them quickly.
-  OTEL_METRIC_EXPORT_INTERVAL: "5000"
   # The key for GM.Messaging's admin endpoints (/admin/messaging, X-Admin-Key header) in every host.
   Admin__ApiKey: sample-admin-key
 
@@ -121,36 +116,6 @@ services:
     depends_on:
       rabbitmq:
         condition: service_healthy
-
-  otel-collector:
-    image: otel/opentelemetry-collector-contrib:0.115.1
-    container_name: gm-messaging-otel-collector
-    command: ["--config=/etc/otelcol/config.yaml"]
-    volumes:
-      - ./deploy/otel-collector.yaml:/etc/otelcol/config.yaml:ro
-    ports:
-      - "4317:4317"
-      - "4318:4318"
-    depends_on:
-      - jaeger
-
-  jaeger:
-    image: jaegertracing/all-in-one:1.62.0
-    container_name: gm-messaging-jaeger
-    environment:
-      COLLECTOR_OTLP_ENABLED: "true"
-    ports:
-      - "16686:16686"
-
-  prometheus:
-    image: prom/prometheus:v3.0.1
-    container_name: gm-messaging-prometheus
-    volumes:
-      - ./deploy/prometheus.yml:/etc/prometheus/prometheus.yml:ro
-    ports:
-      - "9090:9090"
-    depends_on:
-      - otel-collector
 
   api:
     build:

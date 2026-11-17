@@ -13,8 +13,6 @@ docker compose up -d --build
 | http://localhost:8081/health/ready, :8082, :8083 | Consumer A, consumer B, producer worker readiness: database, RabbitMQ, backlog |
 | http://localhost:8080…8084/admin/messaging/... | GM.Messaging's admin endpoints on every host (outbox, inbox, broker queues) |
 | http://localhost:15672 | RabbitMQ management (gm-admin / gm-admin-secret) |
-| http://localhost:16686 | Jaeger traces |
-| http://localhost:9090 | Prometheus metrics |
 
 `GM.Messaging.Sample.API/GM.Messaging.Sample.API.http` has a request for every endpoint, including the
 failure cases and the workers' admin endpoints.
@@ -228,27 +226,13 @@ than 10 in ConsumerB, which dead-letters one email on purpose): work is late, bu
 The workers also report `gm:messaging-broker-queues`: what waits on RabbitMQ itself, read by GM.Messaging every 30
 seconds. It reports `Degraded` when a consumer queue is over 80% of its 100,000-message limit, or when the
 dead-letter or unrouted queue holds anything. In CI, ConsumerB's check goes `Degraded` while the XXX order waits
-in `gm.dead-letters`. The same depths are in Prometheus as `gm_messaging_broker_queue_messages` (by `queue` and
-`role`) and `gm_messaging_broker_queue_limit`.
+in `gm.dead-letters`.
 
 ## Traces and metrics
 
-Every host sends traces and metrics over OTLP to the OpenTelemetry collector (`OTEL_EXPORTER_OTLP_ENDPOINT`;
-config in `deploy/otel-collector.yaml`), which forwards traces to Jaeger and exposes metrics to Prometheus
-(`deploy/prometheus.yml`). Sources: `GM.Messaging` (outbox publish, inbox process, inbox worker) and
-`Wolverine`. Metrics, in Prometheus's naming:
-
-| Metric | What |
-| --- | --- |
-| `gm_messaging_outbox_published_total`, `_failed_total`, `_dead_lettered_total` | Relay publishes |
-| `gm_messaging_outbox_pending`, `gm_messaging_inbox_pending` | Backlog, per process (`service_instance_id`) |
-| `gm_messaging_outbox_lag_seconds` | Time from raising an event to publishing it (histogram) |
-| `gm_messaging_inbox_processed_total`, `_duplicates_total`, `_failed_total`, `_dead_lettered_total` | Consumers |
-| `gm_messaging_cleanup_deleted_total` | Retention |
-
-For example, `sum by (service_name) (rate(gm_messaging_inbox_processed_total[1m]))` is each consumer's
-throughput, and a non-zero `gm_messaging_inbox_duplicates_total` means events were delivered more than once.
-Compose exports metrics every 5 seconds (`OTEL_METRIC_EXPORT_INTERVAL`); the default is a minute.
+Not in the sample for now: they come back with GM.Telemetry. GM.Messaging still records them: the `GM.Messaging`
+activity source and meter (`MessagingTelemetry.Name`), and the outbox row keeps the request's W3C trace context so
+the relay and the consumers continue its trace. They just aren't exported anywhere yet.
 
 ## Settings worth knowing
 
@@ -272,6 +256,6 @@ Compose exports metrics every 5 seconds (`OTEL_METRIC_EXPORT_INTERVAL`); the def
 ## Scaling
 
 The relay and the inbox worker lease rows before working on them, so both can run as several replicas:
-`docker compose up -d --scale producer-worker=2`. CI runs two relays and checks in Prometheus that both
-report metrics, that every event was published exactly once, and that no consumer saw a duplicate. Every
+`docker compose up -d --scale producer-worker=2`. CI runs two relays and checks with RabbitMQ's management
+API that both are connected and that every event was published exactly once. Every
 relay gets the API's wake-ups (each listens on its own temporary queue).

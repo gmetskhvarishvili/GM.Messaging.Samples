@@ -33,7 +33,7 @@ sequenceDiagram
     B->>B: ProcessAsync: inbox row + order_timeline row, one transaction
 ```
 
-The client's trace continues through every step (Jaeger, behind the OpenTelemetry collector, shows it as one trace): the outbox row stores the
+The client's trace continues through every step (exported again once GM.Telemetry is added): the outbox row stores the
 W3C trace context, the relay publishes in it, and Wolverine carries it to the consumers.
 
 ## What happens when something fails
