@@ -32,6 +32,15 @@ x-messaging: &messaging
   Messaging__RabbitMq__TlsCaCertificatePath: /tls/ca.pem
   # Quorum queues: every durable queue GM.Messaging declares is replicated across the cluster (one node here).
   Messaging__RabbitMq__QueueType: Quorum
+  # Queue limits: a consumer queue holds at most 100000 messages (a full one refuses more, so events wait in the outbox),
+  # and the dead-letter and unrouted queues drop messages after two weeks.
+  Messaging__RabbitMq__MaxQueueLength: "100000"
+  Messaging__RabbitMq__DeadLetterRetentionHours: "336"
+  Messaging__RabbitMq__UnroutedRetentionHours: "336"
+  # Events above 64 KB (the bulk stock import) go through the claim check: the body in the shared gm-claim-checks
+  # volume, a reference on RabbitMQ.
+  Messaging__LargeMessages__OffloadAboveBytes: "65536"
+  Messaging__LargeMessages__FileSystemPath: /claim-checks
   # The key ring for [SensitiveData] values: every producer and consumer of those events has the same one.
   # sample-2026-12 is protected with Data Protection (dp:, keys in deploy/dataprotection); CI rotates to it with
   # SAMPLE_CURRENT_KEY_ID=sample-2026-12 and then re-wraps the per-person keys.
@@ -159,6 +168,7 @@ services:
     volumes:
       - ./deploy/tls/certs:/tls:ro
       - ./deploy/dataprotection:/dataprotection:ro
+      - gm-claim-checks:/claim-checks
     ports:
       - "8080:8080"
     depends_on:
@@ -182,6 +192,7 @@ services:
     volumes:
       - ./deploy/tls/certs:/tls:ro
       - ./deploy/dataprotection:/dataprotection:ro
+      - gm-claim-checks:/claim-checks
     ports:
       - "8083-8084:8080"
     depends_on:
@@ -209,6 +220,7 @@ services:
     volumes:
       - ./deploy/tls/certs:/tls:ro
       - ./deploy/dataprotection:/dataprotection:ro
+      - gm-claim-checks:/claim-checks
     ports:
       - "8081:8080"
     depends_on:
@@ -231,6 +243,7 @@ services:
     volumes:
       - ./deploy/tls/certs:/tls:ro
       - ./deploy/dataprotection:/dataprotection:ro
+      - gm-claim-checks:/claim-checks
     ports:
       - "8082:8080"
     depends_on:
@@ -241,3 +254,4 @@ services:
 
 volumes:
   gm-messaging-pgdata:
+  gm-claim-checks:

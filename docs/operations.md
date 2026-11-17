@@ -246,6 +246,10 @@ Compose exports metrics every 5 seconds (`OTEL_METRIC_EXPORT_INTERVAL`); the def
 | `Messaging:RabbitMq:PublisherConfirms` | producer worker | `true` |
 | `Messaging:RabbitMq:UnroutedExchange` | every service (default) | `gm.unrouted` |
 | `Messaging:RabbitMq:QueueType` | every service (the same value everywhere) | `Quorum`: the consumer, dead-letter and unrouted queues are quorum queues |
+| `Messaging:RabbitMq:MaxQueueLength` | every service | `100000`: a full consumer queue refuses new messages (`reject-publish`), and the relay retries |
+| `Messaging:RabbitMq:DeadLetterRetentionHours`, `UnroutedRetentionHours` | every service (the same values everywhere) | `336`: messages older than two weeks are dropped from those queues |
+| `ConsumerTopology:PrefetchCount`, `MaxParallelMessages` | ConsumerB | `50` by default; the inventory queue `20` and `4` |
+| `Messaging:LargeMessages:OffloadAboveBytes`, `FileSystemPath` | producer worker and consumers (docker-compose.yml) | `65536`, `/claim-checks` (the shared `gm-claim-checks` volume) |
 | `Messaging:OutboxRelay:PollingIntervalSeconds` | producer worker | 30 s: saves wake the relay at once, polling is the fallback |
 | `Messaging:OutboxRelay:WakeUpExchange` | API and producer worker | `gm.outbox.wake-up` |
 | `Messaging:OutboxRelay:MaxRetries`, `RetryBaseDelaySeconds`, `LeaseSeconds`, `RetentionDays` | producer worker | 5, 2 s, 60 s, 7 days |

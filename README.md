@@ -83,6 +83,10 @@ Every GM.Messaging feature, each where a real service would use it:
 | **A key per person, and erasure** (crypto-shredding) | `[DataSubject]` on `UserId`/`CustomerId`; keys in the shared `messaging_keys` database (`AddGMSubjectKeys`, `EnsureKeyAsync` in the API). `DELETE /admin/messaging/subject-keys/{id}` makes that person's data unreadable everywhere, and `gm.subject-forgotten` (`AddGMSubjectErasureEvents`) has both consumers erase their own copies |
 | **Key rotation**, with the new key kept out of configuration | `sample-2026-12` is a `dp:` value (Data Protection, keys in `deploy/dataprotection`); CI makes it current and re-wraps every person's key (`POST /admin/messaging/subject-keys/rewrap`) |
 | **Quorum queues**: every durable queue replicated across the cluster | `Messaging:RabbitMq:QueueType: Quorum` in every service; CI checks all 10 `gm.*` queues are quorum |
+| **Queue limits**: a full queue refuses messages, which wait in the outbox; old dead letters expire | `MaxQueueLength: 100000` (`reject-publish`) on the consumer queues, `DeadLetterRetentionHours` / `UnroutedRetentionHours: 336` |
+| **Consumer throughput** | `ConsumerTopology:PrefetchCount: 50` in ConsumerB; its inventory queue overrides it with `PrefetchCount: 20, MaxParallelMessages: 4` |
+| **Scheduled events**: saved now, published when due | `POST /api/v1/reminders` saves a `ReminderDue` with `PublishAt`; ConsumerA records it once it's due (CI checks it doesn't arrive early) |
+| **Large events** through a claim check | `POST /api/v1/inventory/import` (thousands of items, ~200 KB) goes over `Messaging:LargeMessages:OffloadAboveBytes: 65536`: the body in the shared `gm-claim-checks` volume, a reference on RabbitMQ; ConsumerB applies it |
 | **A secured broker**: TLS only, a user per service, mutual TLS | A sample CA (`deploy/tls/generate.sh`) and `Messaging:RabbitMq:TlsCaCertificatePath`; per-service users with scoped permissions (`deploy/rabbitmq/setup.sh`); ConsumerA signs in with a client certificate (`TlsClientCertificatePath`, `UseExternalAuthentication`) |
 
 [docs/architecture.md](docs/architecture.md) walks one event through the system and lists what happens
