@@ -23,6 +23,7 @@ GM.Messaging.Samples/
 │   ├── GM.Messaging.Sample.Application      # CQRS commands + validators (Create Order/Payment/…)
 │   ├── GM.Messaging.Sample.Domain           # Integration events + the outbox aggregate
 │   ├── GM.Messaging.Sample.Persistence      # EF Core persistence (PostgreSQL)
+│   ├── GM.Messaging.Sample.Infrastructure   # GM.Messaging (Wolverine + RabbitMQ) for the producer worker
 │   ├── GM.Messaging.Sample.Common           # Shared resources (exceptions)
 │   └── GM.Messaging.Sample.Producer.Worker  # The outbox relay (leased, confirmed, retried, ordered); health
 ├── ConsumerA (Domain / Infrastructure / Persistence / Worker)   # customer activity via ProcessAsync

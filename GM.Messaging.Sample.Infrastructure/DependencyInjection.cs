@@ -1,7 +1,7 @@
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 
-namespace GM.Messaging.Sample.Producer.Infrastructure;
+namespace GM.Messaging.Sample.Infrastructure;
 
 public static class DependencyInjection
 {

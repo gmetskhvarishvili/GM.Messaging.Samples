@@ -5,7 +5,7 @@ using GM.HealthChecks.Messaging;
 using GM.Messaging.Persistence;
 using GM.Messaging.Sample.Domain.Events;
 using GM.Messaging.Sample.Domain.Events.Inventory;
-using GM.Messaging.Sample.Producer.Infrastructure;
+using GM.Messaging.Sample.Infrastructure;
 using GM.Messaging.Sample.Persistence;
 using GM.Messaging.Sample.Persistence.Context;
 using Microsoft.EntityFrameworkCore;
