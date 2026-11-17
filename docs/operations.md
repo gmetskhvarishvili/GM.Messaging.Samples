@@ -13,8 +13,6 @@ docker compose up -d --build
 | http://localhost:8081/health/ready, :8082, :8083 | Consumer A, consumer B, producer worker readiness: database, RabbitMQ, backlog |
 | http://localhost:8080…8084/admin/messaging/... | GM.Messaging's admin endpoints on every host (outbox, inbox, broker queues) |
 | http://localhost:15672 | RabbitMQ management (gm-admin / gm-admin-secret) |
-| http://localhost:16686 | Jaeger traces |
-| http://localhost:9090 | Prometheus metrics |
 
 `GM.Messaging.Sample.API/GM.Messaging.Sample.API.http` has a request for every endpoint, including the
 failure cases and the workers' admin endpoints.
@@ -30,15 +28,9 @@ Every host calls `MapGMMessagingAdmin()` (GM.Messaging.AspNetCore), which maps e
 | Producer workers (8083, 8084) | `outbox`, `broker/dead-letters`, `broker/unrouted` |
 | ConsumerA (8081), ConsumerB (8082) | `inbox`, `broker/dead-letters`, `broker/unrouted` |
 
-They require the `messaging-admin` authorization policy. The sample has no identity provider, so that
-policy accepts an API key in the `X-Admin-Key` header (`Admin:ApiKey`; docker-compose sets
-`sample-admin-key`, appsettings has `local-dev-admin-key` for `dotnet run`). Without the key a request
-gets 401. In a real service, point the policy at your own authentication (JWT, mTLS, ...). The examples
-below use:
-
-```bash
-ADMIN="X-Admin-Key: sample-admin-key"
-```
+The sample has no login, so it maps them with `AllowAnonymous = true`. In a real service, pass your own
+policy instead: `app.MapGMMessagingAdmin(admin => admin.AuthorizationPolicy = "your-policy")`. Without
+either, they require the default policy (an authenticated user).
 
 ## Dead letters
 
@@ -47,27 +39,27 @@ There are three places a message can end up after its last attempt, each with it
 **Outbox** (events the relay couldn't publish), through the API (`IOutboxAdministration`):
 
 ```bash
-curl -H "$ADMIN" http://localhost:8080/admin/messaging/outbox                      # backlog
-curl -H "$ADMIN" http://localhost:8080/admin/messaging/outbox/dead-letters         # what failed, and why
-curl -H "$ADMIN" -X POST http://localhost:8080/admin/messaging/outbox/dead-letters/requeue   # retry all, after fixing the cause
+curl http://localhost:8080/admin/messaging/outbox                      # backlog
+curl http://localhost:8080/admin/messaging/outbox/dead-letters         # what failed, and why
+curl -X POST http://localhost:8080/admin/messaging/outbox/dead-letters/requeue   # retry all, after fixing the cause
 ```
 
 **Inbox** (events ConsumerB's inbox worker gave up on), through ConsumerB (`IInboxAdministration`):
 
 ```bash
-curl -H "$ADMIN" http://localhost:8082/admin/messaging/inbox                              # backlog
-curl -H "$ADMIN" http://localhost:8082/admin/messaging/inbox/dead-letters                 # what failed, and why
-curl -H "$ADMIN" -X POST http://localhost:8082/admin/messaging/inbox/dead-letters/requeue # retry all
+curl http://localhost:8082/admin/messaging/inbox                              # backlog
+curl http://localhost:8082/admin/messaging/inbox/dead-letters                 # what failed, and why
+curl -X POST http://localhost:8082/admin/messaging/inbox/dead-letters/requeue # retry all
 ```
 
 **The broker's dead-letter queue** `gm.dead-letters` (messages Wolverine moved there after a consumer's
 last retry, such as ConsumerA's XXX order), through ConsumerB (`IBrokerQueueAdministration`):
 
 ```bash
-curl -H "$ADMIN" http://localhost:8082/admin/messaging/broker/dead-letters                # how many
-curl -H "$ADMIN" "http://localhost:8082/admin/messaging/broker/dead-letters/messages?contains=XXX"  # look without consuming: original queue, reason, body ([SensitiveData] masked)
-curl -H "$ADMIN" -X POST http://localhost:8082/admin/messaging/broker/dead-letters/replay # back to each message's original queue
-curl -H "$ADMIN" -X POST "http://localhost:8082/admin/messaging/broker/dead-letters/replay?queue=gm.consumer-a.orders&dryRun=true"  # only count
+curl http://localhost:8082/admin/messaging/broker/dead-letters                # how many
+curl "http://localhost:8082/admin/messaging/broker/dead-letters/messages?contains=XXX"  # look without consuming: original queue, reason, body ([SensitiveData] masked)
+curl -X POST http://localhost:8082/admin/messaging/broker/dead-letters/replay # back to each message's original queue
+curl -X POST "http://localhost:8082/admin/messaging/broker/dead-letters/replay?queue=gm.consumer-a.orders&dryRun=true"  # only count
 ```
 
 The replay, move and messages endpoints take `type`, `queue` (the original queue), `routingKey`, `max`
@@ -85,12 +77,12 @@ CI walks through this after every run; you can do the same on a local stack:
 
 ```bash
 # 1. Fix the cause. Here: tell ConsumerA to accept XXX (a stand-in for a deployed fix).
-curl -H "$ADMIN" -X POST http://localhost:8081/admin/sample/accept-failing-currency
+curl -X POST http://localhost:8081/admin/sample/accept-failing-currency
 # 2. Replay the order from the broker's dead-letter queue to ConsumerA's queue.
-curl -H "$ADMIN" -X POST "http://localhost:8082/admin/messaging/broker/dead-letters/replay?queue=gm.consumer-a.orders"
+curl -X POST "http://localhost:8082/admin/messaging/broker/dead-letters/replay?queue=gm.consumer-a.orders"
 # 3. The handler runs again: the inbox row is processed (no longer dead-lettered), the activity is recorded,
 #    and the dead-letter queue is one message shorter.
-curl -H "$ADMIN" http://localhost:8081/admin/messaging/inbox/dead-letters
+curl http://localhost:8081/admin/messaging/inbox/dead-letters
 ```
 
 ## Unrouted messages
@@ -100,8 +92,8 @@ where no queue is bound for it (a consumer that hasn't started yet, a wrong rout
 `gm.unrouted` queue instead of being dropped. Once the consumer's queue exists:
 
 ```bash
-curl -H "$ADMIN" http://localhost:8082/admin/messaging/broker/unrouted                                 # how many
-curl -H "$ADMIN" -X POST "http://localhost:8082/admin/messaging/broker/unrouted/move?exchange=gm.events" # publish them again
+curl http://localhost:8082/admin/messaging/broker/unrouted                                 # how many
+curl -X POST "http://localhost:8082/admin/messaging/broker/unrouted/move?exchange=gm.events" # publish them again
 ```
 
 CI shows this with `ReturnRequested`, which the API publishes (`POST /api/v1/returns`, routing key
@@ -176,7 +168,7 @@ the outbox, both inboxes, dead letters and backups. Handlers reading those event
 encrypted fields.
 
 ```bash
-curl -H "$ADMIN" -X DELETE http://localhost:8080/admin/messaging/subject-keys/<user id>   # 204; 404 when there's none
+curl -X DELETE http://localhost:8080/admin/messaging/subject-keys/<user id>   # 204; 404 when there's none
 ```
 
 The request also reaches the copies services made in their own tables. `AddGMOutbox` registers
@@ -200,13 +192,13 @@ nothing for it. In production, keep Data Protection's keys in a shared store pro
 AWS KMS. Or implement `ISensitiveDataKeyRing` against your key service. To make the next key, ask any host:
 
 ```bash
-curl -H "$ADMIN" -X POST http://localhost:8080/admin/messaging/sensitive-data/keys   # {"value":"dp:..."}: add it under Keys
+curl -X POST http://localhost:8080/admin/messaging/sensitive-data/keys   # {"value":"dp:..."}: add it under Keys
 ```
 **Rotating the key ring.** CI does this after its other checks:
 
 ```bash
 SAMPLE_CURRENT_KEY_ID=sample-2026-12 docker compose up -d --scale producer-worker=2   # deploy with the new current key
-curl -H "$ADMIN" -X POST http://localhost:8080/admin/messaging/subject-keys/rewrap       # how many keys were re-wrapped
+curl -X POST http://localhost:8080/admin/messaging/subject-keys/rewrap       # how many keys were re-wrapped
 ```
 
 New per-person keys are wrapped with `sample-2026-12` straight away, and the re-wrap moves the existing
@@ -228,27 +220,7 @@ than 10 in ConsumerB, which dead-letters one email on purpose): work is late, bu
 The workers also report `gm:messaging-broker-queues`: what waits on RabbitMQ itself, read by GM.Messaging every 30
 seconds. It reports `Degraded` when a consumer queue is over 80% of its 100,000-message limit, or when the
 dead-letter or unrouted queue holds anything. In CI, ConsumerB's check goes `Degraded` while the XXX order waits
-in `gm.dead-letters`. The same depths are in Prometheus as `gm_messaging_broker_queue_messages` (by `queue` and
-`role`) and `gm_messaging_broker_queue_limit`.
-
-## Traces and metrics
-
-Every host sends traces and metrics over OTLP to the OpenTelemetry collector (`OTEL_EXPORTER_OTLP_ENDPOINT`;
-config in `deploy/otel-collector.yaml`), which forwards traces to Jaeger and exposes metrics to Prometheus
-(`deploy/prometheus.yml`). Sources: `GM.Messaging` (outbox publish, inbox process, inbox worker) and
-`Wolverine`. Metrics, in Prometheus's naming:
-
-| Metric | What |
-| --- | --- |
-| `gm_messaging_outbox_published_total`, `_failed_total`, `_dead_lettered_total` | Relay publishes |
-| `gm_messaging_outbox_pending`, `gm_messaging_inbox_pending` | Backlog, per process (`service_instance_id`) |
-| `gm_messaging_outbox_lag_seconds` | Time from raising an event to publishing it (histogram) |
-| `gm_messaging_inbox_processed_total`, `_duplicates_total`, `_failed_total`, `_dead_lettered_total` | Consumers |
-| `gm_messaging_cleanup_deleted_total` | Retention |
-
-For example, `sum by (service_name) (rate(gm_messaging_inbox_processed_total[1m]))` is each consumer's
-throughput, and a non-zero `gm_messaging_inbox_duplicates_total` means events were delivered more than once.
-Compose exports metrics every 5 seconds (`OTEL_METRIC_EXPORT_INTERVAL`); the default is a minute.
+in `gm.dead-letters`.
 
 ## Settings worth knowing
 
@@ -272,6 +244,6 @@ Compose exports metrics every 5 seconds (`OTEL_METRIC_EXPORT_INTERVAL`); the def
 ## Scaling
 
 The relay and the inbox worker lease rows before working on them, so both can run as several replicas:
-`docker compose up -d --scale producer-worker=2`. CI runs two relays and checks in Prometheus that both
-report metrics, that every event was published exactly once, and that no consumer saw a duplicate. Every
+`docker compose up -d --scale producer-worker=2`. CI runs two relays and checks with RabbitMQ's management
+API that both are connected and that every event was published exactly once. Every
 relay gets the API's wake-ups (each listens on its own temporary queue).

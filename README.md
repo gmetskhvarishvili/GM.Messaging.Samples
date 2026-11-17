@@ -23,7 +23,8 @@ GM.Messaging.Samples/
 │   ├── GM.Messaging.Sample.Application      # CQRS commands + validators (Create Order/Payment/…)
 │   ├── GM.Messaging.Sample.Domain           # Integration events + the outbox aggregate
 │   ├── GM.Messaging.Sample.Persistence      # EF Core persistence (PostgreSQL)
-│   ├── GM.Messaging.Sample.Common           # Shared resources, OpenTelemetry, admin endpoints + API-key policy
+│   ├── GM.Messaging.Sample.Infrastructure   # GM.Messaging (Wolverine + RabbitMQ) for the producer worker
+│   ├── GM.Messaging.Sample.Common           # Shared resources (exceptions)
 │   └── GM.Messaging.Sample.Producer.Worker  # The outbox relay (leased, confirmed, retried, ordered); health
 ├── ConsumerA (Domain / Infrastructure / Persistence / Worker)   # customer activity via ProcessAsync
 ├── ConsumerB (Domain / Infrastructure / Persistence / Worker)   # order timeline, stock, inbox-worker emails
@@ -31,8 +32,8 @@ GM.Messaging.Samples/
 │   ├── GM.Messaging.Sample.Tests            # validator, event and outbox unit tests
 │   └── GM.Messaging.Sample.StackTests       # GM.Testing.Messaging.Integration checks against the running stack
 ├── docs/                                    # architecture and operations
-├── deploy/                                  # OpenTelemetry collector and Prometheus config
-└── Dockerfile, docker-compose.yml           # the whole stack, with traces and metrics
+├── deploy/                                  # RabbitMQ (TLS, users), Data Protection keys
+└── Dockerfile, docker-compose.yml           # the whole stack
 ```
 
 Only the published **GM.*** packages are referenced — no project references into the library repos.
@@ -47,15 +48,13 @@ docker compose up -d --build
 | --- | --- |
 | API + Swagger | http://localhost:8080 |
 | RabbitMQ management | http://localhost:15672 (gm-admin / gm-admin-secret); AMQP is TLS-only on 5671 |
-| Jaeger (traces) | http://localhost:16686 |
-| Prometheus (metrics) | http://localhost:9090, e.g. `gm_messaging_outbox_published_total` |
 | Consumer A / B, producer worker | http://localhost:8081, :8082, :8083: `/health/ready` |
-| Admin endpoints (every host) | `/admin/messaging/...` with the header `X-Admin-Key: sample-admin-key` |
+| Admin endpoints (every host) | `/admin/messaging/...` (open in the sample) |
 
 [`GM.Messaging.Sample.API.http`](GM.Messaging.Sample.API/GM.Messaging.Sample.API.http) has a request for
 every endpoint, including the failure cases and the workers' admin endpoints. To run the projects with
-`dotnet run` instead, start only the infrastructure (`docker compose up -d postgres rabbitmq otel-collector
-jaeger prometheus`) and start the API before the producer worker: the API applies the application
+`dotnet run` instead, start only the infrastructure (`docker compose up -d postgres
+rabbitmq-setup`) and start the API before the producer worker: the API applies the application
 database's migrations and the worker waits for them. Locally the workers listen on ports 5081 to 5083.
 
 ## What it demonstrates
@@ -73,11 +72,10 @@ Every GM.Messaging feature, each where a real service would use it:
 | **Transactional inbox**: the handler's changes and the inbox row commit together | ConsumerA (`customer_activities`), ConsumerB (`order_timeline`, `stock_levels`) via `ProcessAsync` |
 | **Retried failures** recorded on the inbox row, then the broker's dead-letter queue | ConsumerA rejects orders in `XXX`; CI fixes the cause, replays the dead letter and checks it was handled |
 | **Inbox worker** for slow work, with backoff and dead-lettering | ConsumerB's welcome emails (`IngestAsync` + `IInboxHandler`); `@bounce.test` addresses fail |
-| **Admin endpoints** for the outbox, inbox, broker queues and subject keys, behind an authorization policy | `MapGMMessagingAdmin()` (GM.Messaging.AspNetCore) in every host under `/admin/messaging`; the `messaging-admin` policy takes an `X-Admin-Key` header here. Message bodies show with `[SensitiveData]` masked (`BrokerMessageBodies.Redacted`) |
+| **Admin endpoints** for the outbox, inbox, broker queues and subject keys, behind your authorization policy | `MapGMMessagingAdmin()` (GM.Messaging.AspNetCore) in every host under `/admin/messaging`; open in the sample (`AllowAnonymous`), behind your own policy in a real service. Message bodies show with `[SensitiveData]` masked (`BrokerMessageBodies.Redacted`) |
 | **No lost unrouted messages**: anything published with no queue bound is kept | The API's `ReturnRequested` has no consumer yet, so it waits in `gm.unrouted`; `POST /admin/messaging/broker/unrouted/move?exchange=gm.events` sends it on once a queue exists |
 | **Health checks** in every host: database, RabbitMQ, backlog, broker queues | `/health/ready` (`AddGMDatabaseCheck`, `AddGMMessagingCheck`, `AddGMMessagingBacklogCheck`; the workers add `AddGMBrokerQueueCheck`) |
-| **Broker queue depths**: what waits on RabbitMQ | GM.Messaging reads each worker's queues every 30 s: the `gm_messaging_broker_queue_messages` and `_limit` metrics in Prometheus, and the broker queue health check |
-| **Traces and metrics** | OpenTelemetry in every host (`AddSampleTelemetry`) → OpenTelemetry collector → Jaeger and Prometheus |
+| **Broker queue depths**: what waits on RabbitMQ | GM.Messaging reads each worker's queues every 30 s for the broker queue health check |
 | **One consumer name per service** | `Messaging:Inbox:ConsumerName`; handlers call `ProcessAsync(message, handler)` |
 | **Retention** | Published outbox rows go after 7 days, handled inbox rows after 30 |
 | **Personal data in events**: only where needed, and encrypted | `UserRegistered.Email`/`Name` and `ReturnRequested.ContactEmail` are `[SensitiveData]` (set up by `AddGMOutbox`/`AddGMInbox` from the key ring in `Messaging:SensitiveData`): ciphertext in the outbox, the inbox and on RabbitMQ; other events carry ids only |
@@ -92,7 +90,7 @@ Every GM.Messaging feature, each where a real service would use it:
 
 [docs/architecture.md](docs/architecture.md) walks one event through the system and lists what happens
 on each kind of failure; [docs/operations.md](docs/operations.md) covers dead letters, keys and erasure,
-health, traces, metrics and settings.
+health and settings.
 
 ## How GM.Messaging is wired
 
@@ -111,15 +109,15 @@ builder.Services.AddGMIntegrationEvents(events => events
 
 // Consumers: the inbox. Handlers can take ConsumerDbContext too: AddGMInbox has Wolverine resolve it
 // from the message's scope, so it's the same instance IInboxProcessor commits.
-builder.Services.AddInfrastructure(builder.Configuration);   // AddGMMessaging + OpenTelemetry
+builder.Services.AddInfrastructure(builder.Configuration);   // AddGMMessaging
 services.AddGMInbox<InboxMessage, ConsumerDbContext>();
 
 // ConsumerB: the inbox worker and its handler.
 builder.Services.AddGMInboxWorker<InboxMessage, ConsumerDbContext>();
 builder.Services.AddGMInboxHandler<UserRegisteredIntegrationEvent, SendWelcomeEmail>();
 
-// Every host: GM.Messaging's admin endpoints, behind an authorization policy.
-app.MapGMMessagingAdmin(admin => admin.AuthorizationPolicy = "messaging-admin");
+// Every host: GM.Messaging's admin endpoints, behind your authorization policy.
+app.MapGMMessagingAdmin(admin => admin.AuthorizationPolicy = "your-policy");
 ```
 
 A consumer handler:
@@ -155,8 +153,8 @@ the whole stack from `docker-compose.yml` with two relays and drives it through 
 - ConsumerA is connected with its client certificate (EXTERNAL) and has no password;
 - after switching to the `dp:`-protected key, re-wrapping moves every person's key to it, and events still flow;
 - a save in the API is published within seconds, although the relays poll every 30 s;
-- Prometheus shows both relays, every event published exactly once, and no inbox duplicates;
-- the admin endpoints refuse requests without the key, map what each host has, and with every host's
+- both relays are connected, and RabbitMQ received every event exactly once;
+- the admin endpoints map what each host has, and with every host's
   health checks report the backlog; nothing went unrouted.
 
 Then `tests/GM.Messaging.Sample.StackTests` runs against the same stack (`SAMPLE_STACK=true`) with the
@@ -170,8 +168,7 @@ Without `SAMPLE_STACK` these tests skip.
 ## Requirements
 
 - [.NET 10 SDK](https://dotnet.microsoft.com/download)
-- Docker, for `docker-compose.yml` (PostgreSQL, RabbitMQ, the OpenTelemetry collector, Jaeger, Prometheus
-  and the four services).
+- Docker, for `docker-compose.yml` (PostgreSQL, RabbitMQ and the four services).
 
 ## License
 
