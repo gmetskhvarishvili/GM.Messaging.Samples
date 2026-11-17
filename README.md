@@ -80,8 +80,8 @@ Every GM.Messaging feature, each where a real service would use it:
 | **Traces and metrics** | OpenTelemetry in every host (`AddSampleTelemetry`) → OpenTelemetry collector → Jaeger and Prometheus |
 | **One consumer name per service** | `Messaging:Inbox:ConsumerName`; handlers call `ProcessAsync(message, handler)` |
 | **Retention** | Published outbox rows go after 7 days, handled inbox rows after 30 |
-| **Personal data in events**: only where needed, and encrypted | `UserRegistered.Email`/`Name` and `ReturnRequested.ContactEmail` are `[SensitiveData]` (`AddGMSensitiveData`, key ring in `Messaging:SensitiveData`): ciphertext in the outbox, the inbox and on RabbitMQ; other events carry ids only |
-| **A key per person, and erasure** (crypto-shredding) | `[DataSubject]` on `UserId`/`CustomerId`; keys in the shared `messaging_keys` database (`AddGMSensitiveData(..., subjectKeys: ...)`, `EnsureKeyAsync` in the API). `DELETE /admin/messaging/subject-keys/{id}` makes that person's data unreadable everywhere, and `gm.subject-forgotten` (`AddGMOutbox` registers it) has both consumers erase their own copies |
+| **Personal data in events**: only where needed, and encrypted | `UserRegistered.Email`/`Name` and `ReturnRequested.ContactEmail` are `[SensitiveData]` (set up by `AddGMOutbox`/`AddGMInbox` from the key ring in `Messaging:SensitiveData`): ciphertext in the outbox, the inbox and on RabbitMQ; other events carry ids only |
+| **A key per person, and erasure** (crypto-shredding) | `[DataSubject]` on `UserId`/`CustomerId`; keys in the shared `messaging_keys` database (`ConnectionStrings:SubjectKeys`, set up by `AddGMOutbox`/`AddGMInbox`, `EnsureKeyAsync` in the API). `DELETE /admin/messaging/subject-keys/{id}` makes that person's data unreadable everywhere, and `gm.subject-forgotten` (`AddGMOutbox` registers it) has both consumers erase their own copies |
 | **Key rotation**, with the new key kept out of configuration | `sample-2026-12` is a `dp:` value (Data Protection, keys in `deploy/dataprotection`); CI makes it current and re-wraps every person's key (`POST /admin/messaging/subject-keys/rewrap`) |
 | **Quorum queues**: every durable queue replicated across the cluster | `Messaging:RabbitMq:QueueType: Quorum` in every service; CI checks all 10 `gm.*` queues are quorum |
 | **Queue limits**: a full queue refuses messages, which wait in the outbox; old dead letters expire | `MaxQueueLength: 100000` (`reject-publish`) on the consumer queues, `DeadLetterRetentionHours` / `UnroutedRetentionHours: 336` |
@@ -97,10 +97,11 @@ health, traces, metrics and settings.
 ## How GM.Messaging is wired
 
 ```csharp
-// Producer persistence: personal data (the key ring and per-person keys) and the outbox (admin, erasure events,
-// and the relay in the producer worker or, in the API, wake-ups that make every relay publish at once).
-services.AddDbContextPool<ApplicationDbContext>(o => o.UseNpgsql(cs));   // AddGMOutbox attaches GM's interceptors
-services.AddGMSensitiveData(configuration, subjectKeys: (db, keys) => db.UseNpgsql(keys).UseSnakeCaseNamingConvention());
+// Producer persistence: one GM.Messaging call. AddGMOutbox registers the outbox (admin, erasure events, and the relay in
+// the producer worker or, in the API, wake-ups that make every relay publish at once), attaches GM's interceptors to
+// ApplicationDbContext, and sets up personal data from configuration: the key ring and the per-person key database,
+// on the same Npgsql and snake_case settings as ApplicationDbContext. Consumers: AddGMInbox(configuration), likewise.
+services.AddDbContextPool<ApplicationDbContext>(o => o.UseNpgsql(cs).UseSnakeCaseNamingConvention());
 services.AddGMOutbox<OutboxMessage, ApplicationDbContext>(configuration, relay: runOutboxRelay);
 
 // Event versions, wherever events are read (the relay, and consumers for older producers on the wire).

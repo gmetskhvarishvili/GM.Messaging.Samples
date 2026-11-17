@@ -28,7 +28,9 @@ public static class DependencyInjection
 
         services.AddTransient<IInboxMessageRepository, InboxMessageRepository>();
         services.AddTransient<IConsumerUnitOfWork, UnitOfWork.ConsumerUnitOfWork>();
-        services.AddGMInbox<InboxMessage, ConsumerDbContext>();
+        // The inbox, its save interceptors on ConsumerDbContext, and personal data from configuration: the key ring
+        // (Messaging:SensitiveData, shared with the producer) and the per-person keys in the shared messaging_keys database.
+        services.AddGMInbox<InboxMessage, ConsumerDbContext>(configuration);
 
         return services;
     }
