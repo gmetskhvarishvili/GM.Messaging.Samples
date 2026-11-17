@@ -127,7 +127,10 @@ jobs:
           [ "$connected" = "gm-api,gm-consumer-a,gm-consumer-b,gm-producer" ] || { echo "connected users: $connected"; exit 1; }
           # Mutual TLS: ConsumerA's user has no password, and every one of its connections signed in with its client
           # certificate (EXTERNAL); the others use passwords (PLAIN).
-          curl -s -u gm-admin:gm-admin-secret http://localhost:15672/api/users/gm-consumer-a | jq -e '.password_hash == ""'
+          curl -s -u gm-admin:gm-admin-secret http://localhost:15672/api/users/gm-consumer-a | jq -c '{name, password_hash, tags}'
+          if docker compose exec -T rabbitmq rabbitmqctl authenticate_user gm-consumer-a consumer-a-secret >/dev/null 2>&1; then
+            echo "gm-consumer-a can still sign in with a password"; exit 1
+          fi
           curl -s -u gm-admin:gm-admin-secret http://localhost:15672/api/connections \
             | jq -e '([.[] | select(.user == "gm-consumer-a") | .auth_mechanism] | length > 0 and all(. == "EXTERNAL"))
                      and ([.[] | select(.user != "gm-consumer-a") | .auth_mechanism] | all(. == "PLAIN"))' \
