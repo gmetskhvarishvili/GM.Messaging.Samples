@@ -174,8 +174,18 @@ encrypted fields.
 curl -H "$ADMIN" -X DELETE http://localhost:8080/admin/messaging/subject-keys/<user id>   # 204; 404 when there's none
 ```
 
-Data a service copied into its own tables (ConsumerB's `welcome_emails`) is that service's to delete.
-Running processes cache keys for up to `SubjectKeyCacheSeconds` (60).
+The request also reaches the copies services made in their own tables. The API registers
+`AddGMSubjectErasureEvents<OutboxMessage, ApplicationDbContext>()`, so the same call writes GM.Messaging's
+`gm.subject-forgotten` event (routing key `subject.forgotten`) to its outbox. Each consumer handles it
+through its inbox:
+
+| Service | Its copy | On `gm.subject-forgotten` |
+| --- | --- | --- |
+| ConsumerA | the email in its activity feed (`customer_activities.reference`) | replaced with `[erased]`; the activity stays |
+| ConsumerB | the welcome email's address (`welcome_emails`) | the row is deleted |
+
+The event goes out on every request, a repeat included, so a retried erasure still reaches everyone, and
+the handlers are idempotent. Running processes cache keys for up to `SubjectKeyCacheSeconds` (60).
 
 **Keys outside configuration.** `sample-2026-12` is a `dp:` value, protected with ASP.NET Core Data
 Protection. Only processes with the Data Protection keys in `deploy/dataprotection`, mounted read-only into

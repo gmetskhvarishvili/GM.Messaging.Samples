@@ -80,7 +80,7 @@ Every GM.Messaging feature, each where a real service would use it:
 | **One consumer name per service** | `Messaging:Inbox:ConsumerName`; handlers call `ProcessAsync(message, handler)` |
 | **Retention** | Published outbox rows go after 7 days, handled inbox rows after 30 |
 | **Personal data in events**: only where needed, and encrypted | `UserRegistered.Email`/`Name` and `ReturnRequested.ContactEmail` are `[SensitiveData]` (`AddGMSensitiveData`, key ring in `Messaging:SensitiveData`): ciphertext in the outbox, the inbox and on RabbitMQ; other events carry ids only |
-| **A key per person, and erasure** (crypto-shredding) | `[DataSubject]` on `UserId`/`CustomerId`; keys in the shared `messaging_keys` database (`AddGMSubjectKeys`, `EnsureKeyAsync` in the API). `DELETE /admin/messaging/subject-keys/{id}` makes that person's data unreadable everywhere |
+| **A key per person, and erasure** (crypto-shredding) | `[DataSubject]` on `UserId`/`CustomerId`; keys in the shared `messaging_keys` database (`AddGMSubjectKeys`, `EnsureKeyAsync` in the API). `DELETE /admin/messaging/subject-keys/{id}` makes that person's data unreadable everywhere, and `gm.subject-forgotten` (`AddGMSubjectErasureEvents`) has both consumers erase their own copies |
 | **Key rotation**, with the new key kept out of configuration | `sample-2026-12` is a `dp:` value (Data Protection, keys in `deploy/dataprotection`); CI makes it current and re-wraps every person's key (`POST /admin/messaging/subject-keys/rewrap`) |
 | **A secured broker**: TLS only, a user per service, mutual TLS | A sample CA (`deploy/tls/generate.sh`) and `Messaging:RabbitMq:TlsCaCertificatePath`; per-service users with scoped permissions (`deploy/rabbitmq/setup.sh`); ConsumerA signs in with a client certificate (`TlsClientCertificatePath`, `UseExternalAuthentication`) |
 
@@ -147,7 +147,7 @@ the whole stack from `docker-compose.yml` with two relays and drives it through 
 - after the cause is fixed, replaying the dead-lettered order gets it handled, and an unrouted message is
   moved to the queue created for it;
 - a version-1 `InventoryUpdated` published straight to RabbitMQ is upcast and handled;
-- each user's data is encrypted with their own key, and deleting the key (an erasure request) works;
+- each user's data is encrypted with their own key, and an erasure request deletes the key and both consumers erase their own copies;
 - ConsumerA is connected with its client certificate (EXTERNAL) and has no password;
 - after switching to the `dp:`-protected key, re-wrapping moves every person's key to it, and events still flow;
 - a save in the API is published within seconds, although the relays poll every 30 s;

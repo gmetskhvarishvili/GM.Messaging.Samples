@@ -1,7 +1,6 @@
 using GM.Messaging.Broker;
 using GM.Messaging.Domain.Events;
 using GM.Messaging.Options;
-using GM.Messaging.Persistence;
 using GM.Messaging.Persistence.Protection;
 using GM.Messaging.Sample.Common.KeyManagement;
 using GM.Messaging.Sample.Domain.BoundedContext.MessagingBoundedContext.OutboxMessageAggregate;
@@ -12,7 +11,6 @@ using GM.Messaging.Sample.Domain.Events.Users;
 using GM.Messaging.Sample.Persistence.Context;
 using GM.Testing.Messaging.Integration;
 using Microsoft.EntityFrameworkCore;
-using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Xunit;
 using ConsumerAContext = GM.Messaging.Sample.ConsumerA.Persistence.Context.ConsumerDbContext;
@@ -31,25 +29,16 @@ public class StackTests
     private const string SkipReason = "Set SAMPLE_STACK=true with the docker-compose stack running (CI's compose job does).";
     private static bool StackRunning => string.Equals(Environment.GetEnvironmentVariable("SAMPLE_STACK"), "true", StringComparison.OrdinalIgnoreCase);
 
-    // Reads events the way the API does: its key ring (both keys, sample-2026-12 through Data Protection), the
-    // Data Protection keys and the shared per-person key database, all from its appsettings.json.
-    private static readonly Lazy<ServiceProvider> Services = new(() =>
-    {
-        var root = RepositoryRoot();
-        var configuration = new ConfigurationBuilder()
-            .AddJsonFile(Path.Combine(root, "GM.Messaging.Sample.API", "appsettings.json"))
-            .AddInMemoryCollection(new Dictionary<string, string?> { ["Messaging:SensitiveData:DataProtection:KeysPath"] = Path.Combine(root, "deploy", "dataprotection") })
-            .Build();
-        var services = new ServiceCollection().AddLogging();
-        services.AddGMIntegrationEvents(events => events.AddAssembly(typeof(SampleEventVersions).Assembly), isolated: true);
-        services.AddGMSensitiveData(configuration);
-        services.AddSampleKeyManagement(configuration);
-        return services.BuildServiceProvider();
-    });
+    // Reads events the way the API does, from its appsettings.json: its key ring (sample-2026-12 through Data
+    // Protection, keys in deploy/dataprotection) and the shared per-person key database.
+    private static readonly Lazy<MessagingReader> Reader = new(() => MessagingReader.FromAppSettings(
+        Path.Combine(RepositoryRoot(), "GM.Messaging.Sample.API", "appsettings.json"),
+        configureServices: (services, configuration) => services.AddSampleKeyManagement(configuration),
+        eventAssemblies: typeof(SampleEventVersions).Assembly));
 
-    private static IntegrationEventRegistry Registry => Services.Value.GetRequiredService<IntegrationEventRegistry>();
+    private static IntegrationEventRegistry Registry => Reader.Value.Registry;
 
-    private static SubjectKeysDbContext Keys() => Services.Value.CreateScope().ServiceProvider.GetRequiredService<SubjectKeysDbContext>();
+    private static SubjectKeysDbContext Keys() => Reader.Value.Services.CreateScope().ServiceProvider.GetRequiredService<SubjectKeysDbContext>();
 
     private static TContext Context<TContext>(string database, Func<DbContextOptions<TContext>, TContext> create)
         where TContext : DbContext =>

@@ -38,6 +38,9 @@ public static class DependencyInjection
         // its table at startup.
         services.AddSampleKeyManagement(configuration);
 
+        // Erasure requests reach the consumers: deleting a user's key also writes gm.subject-forgotten to the outbox.
+        services.AddGMSubjectErasureEvents<OutboxMessage, ApplicationDbContext>();
+
         services.AddTransient<IOutboxMessageRepository, OutboxMessageRepository>();
         services.AddTransient<IUnitOfWork, UnitOfWork.UnitOfWork>();
 
