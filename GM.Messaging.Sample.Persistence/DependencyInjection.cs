@@ -1,3 +1,4 @@
+using GM.Messaging.Sample.Common.KeyManagement;
 using GM.Messaging.Persistence.Protection;
 using GM.Messaging;
 using GM.Messaging.Persistence;
@@ -33,6 +34,9 @@ public static class DependencyInjection
         // The key ring for [SensitiveData] values (Messaging:SensitiveData): UserRegistered's email and name are
         // encrypted in the outbox and on RabbitMQ.
         services.AddGMSensitiveData(configuration);
+        // Per-person keys (UserRegistered, ReturnRequested) in the shared messaging_keys database; GM.Messaging creates
+        // its table at startup.
+        services.AddSampleKeyManagement(configuration);
 
         services.AddTransient<IOutboxMessageRepository, OutboxMessageRepository>();
         services.AddTransient<IUnitOfWork, UnitOfWork.UnitOfWork>();

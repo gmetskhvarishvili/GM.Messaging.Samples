@@ -104,13 +104,19 @@ jobs:
           [ "$(q messaging_consumer_a "select count(*) from messaging.inbox_messages where event_type = 'users.user-registered' and payload like '%example.test%'")" = "0" ]
           # ... while the handler got the plain address and sent the welcome email to it.
           [ "$(q messaging_consumer_b "select email from application.welcome_emails")" = "ana@example.test" ]
+          # Each user's values are encrypted with their own key (gmenc:s1, [DataSubject] UserId), kept in the shared
+          # messaging_keys database wrapped by the current key-ring key.
+          [ "$(q messaging_api "select count(*) from messaging.outbox_messages where event_type = 'users.user-registered' and payload like '%gmenc:s1:%'")" = "2" ]
+          [ "$(q messaging_keys "select count(*) from messaging.subject_keys where wrapped_key like 'k1:sample-2026-11:%'")" = "2" ]
 
       - name: RabbitMQ is TLS-only, with a user per service
         run: |
           set -e
           # The plain AMQP port is closed; the TLS one presents a certificate the sample CA vouches for.
           if (exec 3<>/dev/tcp/localhost/5672) 2>/dev/null; then echo "Plain AMQP (5672) should be closed"; exit 1; fi
-          echo | openssl s_client -connect localhost:5671 -servername rabbitmq -CAfile deploy/tls/certs/ca.pem -verify_return_error 2>/dev/null | grep -q "Verify return code: 0 (ok)"
+          # (RabbitMQ asks for a client certificate now, for ConsumerA; clients without one still connect.)
+          tls=$(echo | openssl s_client -connect localhost:5671 -servername rabbitmq -CAfile deploy/tls/certs/ca.pem 2>&1 || true)
+          echo "$tls" | grep -Eq "Verify return code: 0 \(ok\)|Verification: OK" || { echo "$tls"; exit 1; }
           # Each service has its own user; the API may only use the wake-up exchange and reads no queue.
           users=$(curl -s -u gm-admin:gm-admin-secret http://localhost:15672/api/users | jq -r '[.[].name] | sort | join(",")')
           [ "$users" = "gm-admin,gm-api,gm-consumer-a,gm-consumer-b,gm-producer" ] || { echo "users: $users"; exit 1; }
@@ -119,6 +125,16 @@ jobs:
           # Every service is connected with its own user.
           connected=$(curl -s -u gm-admin:gm-admin-secret http://localhost:15672/api/connections | jq -r '[.[].user] | unique | sort | join(",")')
           [ "$connected" = "gm-api,gm-consumer-a,gm-consumer-b,gm-producer" ] || { echo "connected users: $connected"; exit 1; }
+          # Mutual TLS: ConsumerA's user has no password, and every one of its connections signed in with its client
+          # certificate (EXTERNAL); the others use passwords (PLAIN).
+          curl -s -u gm-admin:gm-admin-secret http://localhost:15672/api/users/gm-consumer-a | jq -c '{name, password_hash, tags}'
+          if docker compose exec -T rabbitmq rabbitmqctl authenticate_user gm-consumer-a consumer-a-secret >/dev/null 2>&1; then
+            echo "gm-consumer-a can still sign in with a password"; exit 1
+          fi
+          curl -s -u gm-admin:gm-admin-secret http://localhost:15672/api/connections \
+            | jq -e '([.[] | select(.user == "gm-consumer-a") | .auth_mechanism] | length > 0 and all(. == "EXTERNAL"))
+                     and ([.[] | select(.user != "gm-consumer-a") | .auth_mechanism] | all(. == "PLAIN"))' \
+            || { curl -s -u gm-admin:gm-admin-secret http://localhost:15672/api/connections | jq -c '[.[] | {user, auth_mechanism}]'; exit 1; }
 
       - name: A save in the API is published at once, not at the relays' next 30-second poll
         run: |
@@ -193,8 +209,8 @@ jobs:
             if [ "$i" = 30 ]; then echo "The XXX order never reached gm.dead-letters"; exit 1; fi
             sleep 2
           done
-          # Found by its payload on the broker side; the endpoint itself hides bodies (personal data) by default.
-          admin "http://localhost:8082/admin/messaging/broker/dead-letters/messages?contains=XXX" | jq -e 'length >= 1 and all(.[]; .body | startswith("[hidden"))'
+          # Found by its payload; the sample shows bodies with [SensitiveData] masked, and an order has none, so it's readable.
+          admin "http://localhost:8082/admin/messaging/broker/dead-letters/messages?contains=XXX" | jq -e 'length >= 1 and all(.[]; .body | contains("XXX"))'
           # A filtered dry run counts the XXX order without replaying it; one for another queue matches nothing.
           before=$(admin http://localhost:8082/admin/messaging/broker/dead-letters | jq '.messages')
           admin -X POST "http://localhost:8082/admin/messaging/broker/dead-letters/replay?queue=gm.consumer-a.orders&dryRun=true" | jq -e '.matched >= 1 and .transferred == 0'
@@ -232,11 +248,17 @@ jobs:
           set -e
           mq() { curl -sf -u gm-admin:gm-admin-secret -H 'content-type: application/json' "$@"; }
           admin() { curl -sf -H "X-Admin-Key: $ADMIN_KEY" "$@"; }
-          # A new kind of event goes out before any consumer for it exists: RabbitMQ hands it to gm.unrouted.
-          mq -X POST http://localhost:15672/api/exchanges/%2F/gm.events/publish \
-            -d '{"properties":{"content_type":"application/json"},"routing_key":"returns.requested","payload":"{\"ReturnId\":\"r-1\"}","payload_encoding":"string"}' | jq -e '.routed == true'
+          # A new kind of event goes out before any consumer for it exists: the API publishes ReturnRequested
+          # (routing key returns.requested), no queue is bound for it, and RabbitMQ hands it to gm.unrouted.
+          return_id=$(cat /proc/sys/kernel/random/uuid)
+          curl -sf -H 'Content-Type: application/json' http://localhost:8080/api/v1/returns \
+            -d "{\"returnId\":\"$return_id\",\"orderId\":\"$ORDER\",\"customerId\":\"$(cat /proc/sys/kernel/random/uuid)\",\"contactEmail\":\"ana@example.test\",\"reason\":\"Wrong size\"}" > /dev/null
           for i in $(seq 1 15); do [ "$(admin http://localhost:8082/admin/messaging/broker/unrouted | jq '.messages')" = "1" ] && break; sleep 1; done
-          admin "http://localhost:8082/admin/messaging/broker/unrouted/messages" | jq -e '.[0].routingKey == "returns.requested"'
+          # The admin endpoints show it with the contract's [SensitiveData] (the contact email) masked, the rest readable.
+          admin "http://localhost:8082/admin/messaging/broker/unrouted/messages" > /tmp/unrouted.json
+          jq -e --arg id "$return_id" '.[0].routingKey == "returns.requested"
+              and (.[0].body | fromjson | .ContactEmail == "***" and .Reason == "Wrong size" and .ReturnId == $id)' /tmp/unrouted.json \
+            || { cat /tmp/unrouted.json; exit 1; }
           # The returns consumer's queue appears; moving the kept message delivers it there.
           mq -X PUT http://localhost:15672/api/queues/%2F/gm.returns -d '{"durable":true}' > /dev/null
           mq -X POST http://localhost:15672/api/bindings/%2F/e/gm.events/q/gm.returns -d '{"routing_key":"returns.#"}' > /dev/null
@@ -262,6 +284,64 @@ jobs:
             sleep 2
           done
           echo "ConsumerB didn't handle the version-1 event"; docker compose logs --tail 60 consumer-b; exit 1
+
+      - name: Erasure — deleting a user's key makes their personal data unreadable everywhere
+        env:
+          ADMIN_KEY: sample-admin-key
+        run: |
+          set -e
+          q() { docker compose exec -T postgres psql -U postgres -d "$1" -tAc "$2"; }
+          user=$(cat /proc/sys/kernel/random/uuid)
+          echo "ERASED_USER=$user" >> "$GITHUB_ENV"
+          curl -sf -H 'Content-Type: application/json' http://localhost:8080/api/v1/users \
+            -d "{\"userId\":\"$user\",\"email\":\"erase-me@example.test\",\"name\":\"Erase Me\"}" > /dev/null
+          for i in $(seq 1 30); do
+            [ "$(q messaging_consumer_b "select count(*) from application.welcome_emails where email = 'erase-me@example.test'")" = "1" ] && break
+            [ "$i" = 30 ] && { echo "The new user's welcome email wasn't sent"; docker compose logs --tail 60 consumer-b; exit 1; }
+            sleep 2
+          done
+          [ "$(q messaging_keys "select count(*) from messaging.subject_keys where subject_id = '$user'")" = "1" ]
+          # The erasure request: the API's admin endpoint deletes the user's key (a second request finds none).
+          [ "$(curl -s -o /dev/null -w '%{http_code}' -X DELETE -H "X-Admin-Key: $ADMIN_KEY" "http://localhost:8080/admin/messaging/subject-keys/$user")" = "204" ]
+          [ "$(curl -s -o /dev/null -w '%{http_code}' -X DELETE -H "X-Admin-Key: $ADMIN_KEY" "http://localhost:8080/admin/messaging/subject-keys/$user")" = "404" ]
+          [ "$(q messaging_keys "select count(*) from messaging.subject_keys where subject_id = '$user'")" = "0" ]
+          # The event is still in the outbox and the inboxes, but its email and name can't be decrypted any more
+          # (the stack tests read it back). Copies a service made itself (ConsumerB's welcome_emails) are its own to delete.
+
+      - name: Key rotation — switch to the Data Protection-protected key, then re-wrap every user's key
+        env:
+          ADMIN_KEY: sample-admin-key
+        run: |
+          set -e
+          q() { docker compose exec -T postgres psql -U postgres -d "$1" -tAc "$2"; }
+          admin() { curl -sf -H "X-Admin-Key: $ADMIN_KEY" "$@"; }
+          # Deploy with sample-2026-12 (a dp: value, unprotected with the keys in deploy/dataprotection) as the current key.
+          SAMPLE_CURRENT_KEY_ID=sample-2026-12 docker compose up -d --no-build --scale producer-worker=2
+          ready() { curl -sf "http://localhost:$1/health/ready" >/dev/null; }
+          for i in $(seq 1 90); do
+            ready 8080 && ready 8081 && ready 8082 && ready 8083 && ready 8084 && break
+            [ "$i" = 90 ] && { docker compose ps; docker compose logs --tail 60; exit 1; }
+            sleep 2
+          done
+          docker compose exec -T api printenv Messaging__SensitiveData__CurrentKeyId | grep -qx sample-2026-12
+          # The stored keys are still wrapped with sample-2026-11; re-wrapping moves them all to sample-2026-12.
+          old=$(q messaging_keys "select count(*) from messaging.subject_keys where wrapped_key not like 'k1:sample-2026-12:%'")
+          [ "$old" -ge 1 ]
+          admin -X POST http://localhost:8080/admin/messaging/subject-keys/rewrap | jq -e ". == $old"
+          [ "$(q messaging_keys "select count(*) from messaging.subject_keys where wrapped_key not like 'k1:sample-2026-12:%'")" = "0" ]
+          admin -X POST http://localhost:8080/admin/messaging/subject-keys/rewrap | jq -e '. == 0'
+          # The next rotation's key, made by a host in its dp: form (the raw key never leaves the process).
+          admin -X POST http://localhost:8080/admin/messaging/sensitive-data/keys | jq -e '.value | startswith("dp:")'
+          # Everything still flows: a user registered now gets a key wrapped with the new key and a welcome email.
+          user=$(cat /proc/sys/kernel/random/uuid)
+          curl -sf -H 'Content-Type: application/json' http://localhost:8080/api/v1/users \
+            -d "{\"userId\":\"$user\",\"email\":\"rotated@example.test\",\"name\":\"Rotated\"}" > /dev/null
+          for i in $(seq 1 30); do
+            [ "$(q messaging_consumer_b "select count(*) from application.welcome_emails where email = 'rotated@example.test'")" = "1" ] && break
+            [ "$i" = 30 ] && { echo "No welcome email after the rotation"; docker compose logs --tail 60 consumer-b api; exit 1; }
+            sleep 2
+          done
+          [ "$(q messaging_keys "select wrapped_key like 'k1:sample-2026-12:%' from messaging.subject_keys where subject_id = '$user'")" = "t" ]
 
       - name: Stack tests (GM.Testing.Messaging.Integration against the running stack)
         env:

@@ -32,6 +32,12 @@ Content-Type: application/json
 
 { "userId": "c3d4e5f6-a7b8-4c9d-8e1f-2a3b4c5d6e7f", "email": "nobody@bounce.test", "name": "Bounce" }
 
+### Request a return (no consumer yet: it waits in gm.unrouted; the contact email is encrypted with the customer's key)
+POST {{api}}/returns
+Content-Type: application/json
+
+{ "returnId": "e5f6a7b8-c9d0-4e1f-8a3b-4c5d6e7f8091", "orderId": "{{orderId}}", "customerId": "f6a7b8c9-d0e1-4f2a-9b4c-5d6e7f8091a2", "contactEmail": "ana@example.test", "reason": "Wrong size" }
+
 ### Change stock (inventory.inventory-updated, payload version 2)
 POST {{api}}/inventory
 Content-Type: application/json

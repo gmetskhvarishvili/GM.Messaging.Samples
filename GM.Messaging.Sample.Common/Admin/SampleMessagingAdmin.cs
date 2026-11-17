@@ -35,9 +35,17 @@ public static class SampleMessagingAdmin
         return services;
     }
 
-    /// <summary>Maps the endpoints under <c>/admin/messaging</c> (outbox, inbox and broker, whichever this host has).</summary>
+    /// <summary>
+    /// Maps the endpoints under <c>/admin/messaging</c> (outbox, inbox, broker and subject keys, whichever this host
+    /// has). Broker message bodies are shown with what the event contract marks <c>[SensitiveData]</c> masked, so
+    /// operators can read a dead letter's ids and amounts without seeing anyone's email.
+    /// </summary>
     public static RouteGroupBuilder MapSampleMessagingAdmin(this IEndpointRouteBuilder endpoints) =>
-        endpoints.MapGMMessagingAdmin(admin => admin.AuthorizationPolicy = Policy);
+        endpoints.MapGMMessagingAdmin(admin =>
+        {
+            admin.AuthorizationPolicy = Policy;
+            admin.MessageBodies = BrokerMessageBodies.Redacted;
+        });
 }
 
 public sealed class AdminKeyOptions : AuthenticationSchemeOptions

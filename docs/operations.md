@@ -65,7 +65,7 @@ last retry, such as ConsumerA's XXX order), through ConsumerB (`IBrokerQueueAdmi
 
 ```bash
 curl -H "$ADMIN" http://localhost:8082/admin/messaging/broker/dead-letters                # how many
-curl -H "$ADMIN" "http://localhost:8082/admin/messaging/broker/dead-letters/messages?contains=XXX"  # look without consuming: original queue, reason (bodies hidden)
+curl -H "$ADMIN" "http://localhost:8082/admin/messaging/broker/dead-letters/messages?contains=XXX"  # look without consuming: original queue, reason, body ([SensitiveData] masked)
 curl -H "$ADMIN" -X POST http://localhost:8082/admin/messaging/broker/dead-letters/replay # back to each message's original queue
 curl -H "$ADMIN" -X POST "http://localhost:8082/admin/messaging/broker/dead-letters/replay?queue=gm.consumer-a.orders&dryRun=true"  # only count
 ```
@@ -100,8 +100,10 @@ curl -H "$ADMIN" http://localhost:8082/admin/messaging/broker/unrouted          
 curl -H "$ADMIN" -X POST "http://localhost:8082/admin/messaging/broker/unrouted/move?exchange=gm.events" # publish them again
 ```
 
-CI shows this with a `returns.requested` event that nothing consumes yet: it lands in `gm.unrouted`, then
-a `gm.returns` queue bound to `returns.#` is created, and the move delivers it there.
+CI shows this with `ReturnRequested`, which the API publishes (`POST /api/v1/returns`, routing key
+`returns.requested`) before any returns service exists. It lands in `gm.unrouted`, where the admin endpoints
+show it with the contact email masked. Then a `gm.returns` queue bound to `returns.#` is created, and the
+move delivers it there.
 
 ## Old event versions on the wire
 
@@ -116,28 +118,89 @@ it: delete the exchange once (the services recreate it), or set `Messaging:Rabbi
 ## Security
 
 **The broker.** RabbitMQ accepts only TLS (port 5671; the plain AMQP port is closed). On first start
-`deploy/tls/generate.sh` creates a sample CA and a certificate for `rabbitmq` and `localhost` in
-`deploy/tls/certs` (git-ignored), and the services trust that CA through
+`deploy/tls/generate.sh` creates a sample CA, a certificate for `rabbitmq` and `localhost`, and a client
+certificate for ConsumerA in `deploy/tls/certs` (git-ignored). The services trust that CA through
 `Messaging:RabbitMq:TlsCaCertificatePath`. Each service has its own RabbitMQ user, created by
 `deploy/rabbitmq/setup.sh`, limited to what it uses:
 
-| User | May use |
-| --- | --- |
-| `gm-api` | publish to the wake-up exchange; reads no queue |
-| `gm-producer` | the events exchange, the unrouted and dead-letter queues, wake-ups |
-| `gm-consumer-a`, `gm-consumer-b` | the events exchange, the unrouted and dead-letter queues, and their own queues only |
+| User | Signs in with | May use |
+| --- | --- | --- |
+| `gm-api` | password | publish to the wake-up exchange; reads no queue |
+| `gm-producer` | password | the events exchange, the unrouted and dead-letter queues, wake-ups |
+| `gm-consumer-a` | client certificate (no password) | the events exchange, the unrouted and dead-letter queues, and its own queues only |
+| `gm-consumer-b` | password | the same, for its own queues |
+
+**Mutual TLS.** ConsumerA presents `consumer-a.pem` (CN=`gm-consumer-a`, signed by the sample CA) and signs
+in with RabbitMQ's EXTERNAL mechanism, which takes the user from the certificate's common name:
+
+```json
+"RabbitMq": {
+  "UserName": "gm-consumer-a",
+  "TlsClientCertificatePath": "/tls/consumer-a.pem",
+  "TlsClientKeyPath": "/tls/consumer-a.key",
+  "UseExternalAuthentication": true
+}
+```
+
+RabbitMQ verifies client certificates when they're offered (`ssl_options.verify = verify_peer`), enables
+EXTERNAL (`rabbitmq_auth_mechanism_ssl` in `deploy/rabbitmq/enabled_plugins`), and still lets the other
+services use passwords. To move every service to certificates, give each one its own certificate and set
+`ssl_options.fail_if_no_peer_cert = true`.
 
 The administrator (`gm-admin`) is for the management UI. In production, the certificates come from your
 CA, passwords from a secret store, the management UI stays off public networks, and the broker's disks are
 encrypted.
 
-**Personal data in events.** Events carry ids where that's enough. `UserRegistered` needs the user's email
-and name (for the welcome email and the activity feed), so they're `[SensitiveData]`: GM.Messaging encrypts
-them with the key ring in `Messaging:SensitiveData` wherever the event is written (outbox and inbox rows,
-messages on RabbitMQ, dead letters), and handlers get the plain values. Every host has the same key ring;
-to rotate, add a key, make it current, and keep the old one while old messages may still be read. For
-erasure requests, GM.Messaging can also encrypt each person's data with their own key and delete it
-(`[DataSubject]`, `AddGMSubjectKeys`); this sample doesn't use that.
+## Personal data and keys
+
+Events carry ids where that's enough. `UserRegistered` needs the user's email and name (for the welcome
+email and the activity feed), and `ReturnRequested` a contact email, so those are `[SensitiveData]`.
+GM.Messaging encrypts them wherever the event is written (outbox and inbox rows, messages on RabbitMQ, dead
+letters), and handlers get the plain values.
+
+**A key per person.** Each of those events names its person with `[DataSubject]`:
+`[DataSubject(nameof(UserId))]` on `UserRegistered` (an inherited property), and on
+`ReturnRequested.CustomerId`. Their values are encrypted with that person's own key, wrapped by the key ring
+in `Messaging:SensitiveData`. The keys live in the shared `messaging_keys` database. Every host registers it
+with `AddGMSubjectKeys(db => db.UseNpgsql(...))`, and GM.Messaging creates the database and its
+`subject_keys` table at startup, so the sample has no DbContext or migration for it. The API creates a
+person's key before writing their first event (`EnsureKeyAsync`).
+
+**Erasure requests.** Deleting the person's key makes their data unreadable in every copy of every event:
+the outbox, both inboxes, dead letters and backups. Handlers reading those events get `null` for the
+encrypted fields.
+
+```bash
+curl -H "$ADMIN" -X DELETE http://localhost:8080/admin/messaging/subject-keys/<user id>   # 204; 404 when there's none
+```
+
+Data a service copied into its own tables (ConsumerB's `welcome_emails`) is that service's to delete.
+Running processes cache keys for up to `SubjectKeyCacheSeconds` (60).
+
+**Keys outside configuration.** `sample-2026-12` is a `dp:` value, protected with ASP.NET Core Data
+Protection. Only processes with the Data Protection keys in `deploy/dataprotection`, mounted read-only into
+each container, can use it. GM.Messaging reads them through `Messaging:SensitiveData:DataProtection`
+(`KeysPath`, `ApplicationName: GM.Messaging.Sample`) with its own Data Protection, so the hosts set up
+nothing for it. In production, keep Data Protection's keys in a shared store protected by Azure Key Vault or
+AWS KMS. Or implement `ISensitiveDataKeyRing` against your key service. To make the next key, ask any host:
+
+```bash
+curl -H "$ADMIN" -X POST http://localhost:8080/admin/messaging/sensitive-data/keys   # {"value":"dp:..."}: add it under Keys
+```
+**Rotating the key ring.** CI does this after its other checks:
+
+```bash
+SAMPLE_CURRENT_KEY_ID=sample-2026-12 docker compose up -d --scale producer-worker=2   # deploy with the new current key
+curl -H "$ADMIN" -X POST http://localhost:8080/admin/messaging/subject-keys/rewrap       # how many keys were re-wrapped
+```
+
+New per-person keys are wrapped with `sample-2026-12` straight away, and the re-wrap moves the existing
+ones. Run it again and it re-wraps none. Keep `sample-2026-11` while messages encrypted with it directly may
+still be read, then remove it.
+
+**Admin endpoints.** Broker message bodies are shown with the contract's `[SensitiveData]` masked
+(`MessageBodies = BrokerMessageBodies.Redacted`): a dead-lettered order is readable in full, while a
+`ReturnRequested` in `gm.unrouted` shows `"ContactEmail": "***"`.
 
 ## Health
 

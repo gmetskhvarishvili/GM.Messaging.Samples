@@ -1,13 +1,19 @@
 using GM.Messaging.Broker;
 using GM.Messaging.Domain.Events;
 using GM.Messaging.Options;
+using GM.Messaging.Persistence;
 using GM.Messaging.Persistence.Protection;
+using GM.Messaging.Sample.Common.KeyManagement;
 using GM.Messaging.Sample.Domain.BoundedContext.MessagingBoundedContext.OutboxMessageAggregate;
+using GM.Messaging.Sample.Domain.Events;
 using GM.Messaging.Sample.Domain.Events.Orders;
+using GM.Messaging.Sample.Domain.Events.Returns;
 using GM.Messaging.Sample.Domain.Events.Users;
 using GM.Messaging.Sample.Persistence.Context;
 using GM.Testing.Messaging.Integration;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Configuration;
+using Microsoft.Extensions.DependencyInjection;
 using Xunit;
 using ConsumerAContext = GM.Messaging.Sample.ConsumerA.Persistence.Context.ConsumerDbContext;
 using ConsumerAInbox = GM.Messaging.Sample.ConsumerA.Domain.BoundedContext.MessagingBoundedContext.InboxMessageAggregate.InboxMessage;
@@ -23,17 +29,27 @@ namespace GM.Messaging.Sample.StackTests;
 public class StackTests
 {
     private const string SkipReason = "Set SAMPLE_STACK=true with the docker-compose stack running (CI's compose job does).";
-    private const string KeyId = "sample-2026-11";
-    private const string Key = "0jhLQs7AjRkn9OLKULOvcGKQOili1qobbLtbx54iNF8=";
-
     private static bool StackRunning => string.Equals(Environment.GetEnvironmentVariable("SAMPLE_STACK"), "true", StringComparison.OrdinalIgnoreCase);
 
-    // Reads events the way the sample's hosts do: with the same sensitive-data key ring.
-    private static readonly IntegrationEventRegistry Registry = new()
+    // Reads events the way the API does: its key ring (both keys, sample-2026-12 through Data Protection), the
+    // Data Protection keys and the shared per-person key database, all from its appsettings.json.
+    private static readonly Lazy<ServiceProvider> Services = new(() =>
     {
-        SensitiveData = new KeyRingSensitiveDataProtector(Microsoft.Extensions.Options.Options.Create(
-            new SensitiveDataOptions { CurrentKeyId = KeyId, Keys = { [KeyId] = Key } })),
-    };
+        var root = RepositoryRoot();
+        var configuration = new ConfigurationBuilder()
+            .AddJsonFile(Path.Combine(root, "GM.Messaging.Sample.API", "appsettings.json"))
+            .AddInMemoryCollection(new Dictionary<string, string?> { ["Messaging:SensitiveData:DataProtection:KeysPath"] = Path.Combine(root, "deploy", "dataprotection") })
+            .Build();
+        var services = new ServiceCollection().AddLogging();
+        services.AddGMIntegrationEvents(events => events.AddAssembly(typeof(SampleEventVersions).Assembly), isolated: true);
+        services.AddGMSensitiveData(configuration);
+        services.AddSampleKeyManagement(configuration);
+        return services.BuildServiceProvider();
+    });
+
+    private static IntegrationEventRegistry Registry => Services.Value.GetRequiredService<IntegrationEventRegistry>();
+
+    private static SubjectKeysDbContext Keys() => Services.Value.CreateScope().ServiceProvider.GetRequiredService<SubjectKeysDbContext>();
 
     private static TContext Context<TContext>(string database, Func<DbContextOptions<TContext>, TContext> create)
         where TContext : DbContext =>
@@ -118,11 +134,50 @@ public class StackTests
         try
         {
             await broker.ShouldHaveNoUnroutedAsync();
-            await broker.ShouldHaveQueueCountAsync("gm.returns", 1); // the message moved from gm.unrouted
+            await broker.ShouldHaveQueueCountAsync("gm.returns", 1); // the ReturnRequested moved from gm.unrouted
         }
         finally
         {
             await ((IAsyncDisposable)broker).DisposeAsync();
         }
+    }
+
+    [SkippableFact]
+    public async Task ReturnRequest_CarriesTheContactEmailEncryptedWithTheCustomersKey()
+    {
+        Skip.IfNot(StackRunning, SkipReason);
+        await using var producer = Producer();
+        var request = await producer.ShouldHaveOutboxEventAsync<OutboxMessage, ReturnRequestedIntegrationEvent>(e => e.Reason == "Wrong size", Registry);
+
+        Assert.Equal("ana@example.test", request.ContactEmail);
+        await using var keys = Keys();
+        Assert.True(await keys.Set<SubjectKey>().AnyAsync(k => k.SubjectId == request.CustomerId.ToString()));
+    }
+
+    [SkippableFact]
+    public async Task ErasedUser_TheirEventsEmailAndNameAreUnreadable()
+    {
+        Skip.IfNot(StackRunning, SkipReason);
+        var erased = Guid.Parse(Environment.GetEnvironmentVariable("ERASED_USER")
+            ?? throw new InvalidOperationException("ERASED_USER isn't set (CI's erasure step sets it)."));
+
+        await using var producer = Producer();
+        var registered = await producer.ShouldHaveOutboxEventAsync<OutboxMessage, UserRegisteredIntegrationEvent>(e => e.UserId == erased, Registry);
+
+        // The event is still there, ids intact; the personal data in it died with the user's key.
+        Assert.Null(registered.Email);
+        Assert.Null(registered.Name);
+        await using var keys = Keys();
+        Assert.False(await keys.Set<SubjectKey>().AnyAsync(k => k.SubjectId == erased.ToString()));
+    }
+
+    [SkippableFact]
+    public async Task AfterTheRotation_EveryUsersKeyIsWrappedWithTheNewKey()
+    {
+        Skip.IfNot(StackRunning, SkipReason);
+        await using var keys = Keys();
+
+        Assert.NotEmpty(await keys.Set<SubjectKey>().ToListAsync());
+        Assert.True(await keys.Set<SubjectKey>().AllAsync(k => k.WrappedKey.StartsWith("k1:sample-2026-12:")));
     }
 }

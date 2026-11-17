@@ -22,8 +22,8 @@
 #
 # Security: RabbitMQ accepts only TLS, with a sample CA generated on first start that the services trust
 # (Messaging__RabbitMq__TlsCaCertificatePath). Each service has its own RabbitMQ user, limited to the exchanges
-# and queues it uses (deploy/rabbitmq/setup.sh). Personal data in events ([SensitiveData]) is encrypted with
-# the key ring below. These are sample secrets: in production they come from a secret store.
+# and queues it uses (deploy/rabbitmq/setup.sh); ConsumerA signs in with a client certificate (mutual TLS).
+# Personal data in events ([SensitiveData]) is encrypted with the key ring below, with a key per person. These are sample secrets: in production they come from a secret store.
 
 x-messaging: &messaging
   Messaging__RabbitMq__HostName: rabbitmq
@@ -31,8 +31,14 @@ x-messaging: &messaging
   Messaging__RabbitMq__UseTls: "true"
   Messaging__RabbitMq__TlsCaCertificatePath: /tls/ca.pem
   # The key ring for [SensitiveData] values: every producer and consumer of those events has the same one.
-  Messaging__SensitiveData__CurrentKeyId: sample-2026-11
+  # sample-2026-12 is protected with Data Protection (dp:, keys in deploy/dataprotection); CI rotates to it with
+  # SAMPLE_CURRENT_KEY_ID=sample-2026-12 and then re-wraps the per-person keys.
+  Messaging__SensitiveData__CurrentKeyId: ${SAMPLE_CURRENT_KEY_ID:-sample-2026-11}
   Messaging__SensitiveData__Keys__sample-2026-11: 0jhLQs7AjRkn9OLKULOvcGKQOili1qobbLtbx54iNF8=
+  Messaging__SensitiveData__Keys__sample-2026-12: dp:CfDJ8IIqVXqQTlBMilxVLWaETfAH3NReVOPVIFJ6UbB3qhIc7PXLy2UrutkS0fXR92g3HxZfj1O-4mGsVlEoL5UpPFpeC90SXkIRCPXE0hdbyvz5cYetpgOl0gAH9udV0hRLPGVp6ZoB3P7PxSMKhLfZVE2kGSamIx09En7r_IwM3CyM
+  Messaging__SensitiveData__DataProtection__KeysPath: /dataprotection
+  # Per-person keys ([DataSubject]), shared by every service that reads those events; GM.Messaging creates the table.
+  ConnectionStrings__SubjectKeys: "Host=postgres;Port=5432;Database=messaging_keys;Username=postgres;Password=123456"
   OTEL_EXPORTER_OTLP_ENDPOINT: http://otel-collector:4317
   # Metrics every 5 s instead of every minute, so Prometheus (and CI) see them quickly.
   OTEL_METRIC_EXPORT_INTERVAL: "5000"
@@ -73,6 +79,8 @@ services:
       RABBITMQ_DEFAULT_PASS: gm-admin-secret
     volumes:
       - ./deploy/rabbitmq/rabbitmq.conf:/etc/rabbitmq/conf.d/20-gm.conf:ro
+      # The management UI, Prometheus metrics, and EXTERNAL authentication (client certificates).
+      - ./deploy/rabbitmq/enabled_plugins:/etc/rabbitmq/enabled_plugins:ro
       - ./deploy/tls/certs:/tls:ro
     ports:
       - "5671:5671"
@@ -96,7 +104,6 @@ services:
       RABBITMQ_ADMIN_PASSWORD: gm-admin-secret
       GM_API_PASSWORD: api-secret
       GM_PRODUCER_PASSWORD: producer-secret
-      GM_CONSUMER_A_PASSWORD: consumer-a-secret
       GM_CONSUMER_B_PASSWORD: consumer-b-secret
     volumes:
       - ./deploy/rabbitmq/setup.sh:/setup.sh:ro
@@ -149,6 +156,7 @@ services:
       ConnectionStrings__ApplicationDatabase: "Host=postgres;Port=5432;Database=messaging_api;Username=postgres;Password=123456"
     volumes:
       - ./deploy/tls/certs:/tls:ro
+      - ./deploy/dataprotection:/dataprotection:ro
     ports:
       - "8080:8080"
     depends_on:
@@ -171,6 +179,7 @@ services:
       ConnectionStrings__ApplicationDatabase: "Host=postgres;Port=5432;Database=messaging_api;Username=postgres;Password=123456"
     volumes:
       - ./deploy/tls/certs:/tls:ro
+      - ./deploy/dataprotection:/dataprotection:ro
     ports:
       - "8083-8084:8080"
     depends_on:
@@ -189,11 +198,15 @@ services:
     container_name: gm-messaging-consumer-a
     environment:
       <<: *messaging
+      # Mutual TLS: signs in with its client certificate (EXTERNAL), not a password.
       Messaging__RabbitMq__UserName: gm-consumer-a
-      Messaging__RabbitMq__Password: consumer-a-secret
+      Messaging__RabbitMq__TlsClientCertificatePath: /tls/consumer-a.pem
+      Messaging__RabbitMq__TlsClientKeyPath: /tls/consumer-a.key
+      Messaging__RabbitMq__UseExternalAuthentication: "true"
       ConnectionStrings__ApplicationDatabase: "Host=postgres;Port=5432;Database=messaging_consumer_a;Username=postgres;Password=123456"
     volumes:
       - ./deploy/tls/certs:/tls:ro
+      - ./deploy/dataprotection:/dataprotection:ro
     ports:
       - "8081:8080"
     depends_on:
@@ -215,6 +228,7 @@ services:
       ConnectionStrings__ApplicationDatabase: "Host=postgres;Port=5432;Database=messaging_consumer_b;Username=postgres;Password=123456"
     volumes:
       - ./deploy/tls/certs:/tls:ro
+      - ./deploy/dataprotection:/dataprotection:ro
     ports:
       - "8082:8080"
     depends_on:

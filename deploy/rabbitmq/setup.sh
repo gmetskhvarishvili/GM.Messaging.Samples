@@ -26,9 +26,13 @@ permissions gm-api '^gm.outbox.wake-up$' '^gm.outbox.wake-up$' '^$'
 user gm-producer "$GM_PRODUCER_PASSWORD"
 permissions gm-producer "^($shared|gm.outbox.wake-up)$" "^($shared|gm.outbox.wake-up|amq.default)$" "^($shared|gm.outbox.wake-up)$"
 
+# ConsumerA signs in with its client certificate (EXTERNAL, mutual TLS), so its user has no password at all.
+curl -sf -u "$auth" -X PUT -H 'content-type: application/json' "$api/users/gm-consumer-a" \
+  -d '{"password_hash":"","tags":""}' > /dev/null
+user gm-consumer-b "$GM_CONSUMER_B_PASSWORD"
+
 # Each consumer reaches its own queues, not the other consumer's.
 for consumer in a b; do
-  user "gm-consumer-$consumer" "$(eval echo \$GM_CONSUMER_$(echo $consumer | tr a-z A-Z)_PASSWORD)"
   permissions "gm-consumer-$consumer" "^($shared|gm.consumer-$consumer..*)$" "^($shared|gm.consumer-$consumer..*|amq.default)$" "^($shared|gm.consumer-$consumer..*)$"
 done
 
