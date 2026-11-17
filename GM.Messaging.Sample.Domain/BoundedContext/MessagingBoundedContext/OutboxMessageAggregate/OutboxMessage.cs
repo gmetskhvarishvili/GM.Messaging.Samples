@@ -1,22 +1,21 @@
 using System.Text.Json;
 using GM.EntityFramework.Domain.Abstractions;
 using GM.Messaging.Domain.Events;
+using GM.Messaging.Domain.Outbox;
 
 namespace GM.Messaging.Sample.Domain.BoundedContext.MessagingBoundedContext.OutboxMessageAggregate;
 
-public class OutboxMessage : GM.Messaging.Domain.Outbox.OutboxMessage, IAggregateRoot
+public class OutboxMessage : GMOutboxMessage, IAggregateRoot
 {
     private OutboxMessage() { }
+
+    private OutboxMessage(IIntegrationEvent evt, JsonSerializerOptions? options, string? orderingKey)
+        : base(evt, options, orderingKey) { }
 
     /// <summary>
     /// The event as an outbox message: its stable name and version, payload, ordering key (from
     /// <see cref="IOrderedIntegrationEvent"/>) and the current trace, so the relay continues the request's trace.
     /// </summary>
-    public new static OutboxMessage From<TEvent>(TEvent evt, JsonSerializerOptions? options = null, string? orderingKey = null)
-        where TEvent : IIntegrationEvent
-    {
-        var message = new OutboxMessage();
-        message.Populate(evt, options, orderingKey);
-        return message;
-    }
+    public new static OutboxMessage Create<TEvent>(TEvent evt, JsonSerializerOptions? options = null, string? orderingKey = null)
+        where TEvent : IIntegrationEvent => new(evt, options, orderingKey);
 }

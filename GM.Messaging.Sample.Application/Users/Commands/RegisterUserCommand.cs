@@ -34,7 +34,7 @@ public class RegisterUserCommandHandler(IUnitOfWork unitOfWork)
             request.Email,
             request.Name);
 
-        await unitOfWork.OutboxMessageRepository.AddAsync(OutboxMessage.From(evt), cancellationToken);
+        await unitOfWork.OutboxMessageRepository.AddAsync(OutboxMessage.Create(evt), cancellationToken);
         await unitOfWork.SaveChangesAsync(cancellationToken);
 
         return new RegisterUserResult(evt.EventId, evt.OccurredAtUtc);
