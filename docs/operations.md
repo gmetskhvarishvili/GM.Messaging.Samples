@@ -75,6 +75,10 @@ and `dryRun`; messages that don't match stay in place, in order. ConsumerA's inb
 is dead-lettered as well once the broker's last delivery fails, so its readiness reports the dead letter
 (Degraded). Replaying the message from the broker hands it to the handler again.
 
+Peeking and dry runs take messages and put them back. The dead-letter and unrouted queues are quorum queues
+with no delivery limit (`x-delivery-limit: -1`, GM.Messaging 4.11), so peeking as often as you like loses
+nothing. RabbitMQ 4 would otherwise drop a message returned 20 times. CI peeks 25 times to check it.
+
 ### Recovering the XXX order, end to end
 
 CI walks through this after every run; you can do the same on a local stack:

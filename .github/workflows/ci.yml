@@ -146,6 +146,8 @@ jobs:
               and all(."x-max-length" == 100000 and ."x-overflow" == "reject-publish")' \
             || { echo "$queues" | jq -c '[.[] | {name, arguments}]'; exit 1; }
           echo "$queues" | jq -e '[.[] | select(.name == "gm.dead-letters" or .name == "gm.unrouted") | .arguments."x-message-ttl"] == [1209600000, 1209600000]'
+          # No delivery limit on those two (RabbitMQ 4 quorum queues drop a message returned 20 times; peeks return them).
+          echo "$queues" | jq -e '[.[] | select(.name == "gm.dead-letters" or .name == "gm.unrouted") | .arguments."x-delivery-limit"] == [-1, -1]'
           # Consumer throughput: ConsumerB's inventory queue has a prefetch of 20 (the others 50, ConsumerTopology:PrefetchCount).
           curl -s -u gm-admin:gm-admin-secret http://localhost:15672/api/queues/%2F/gm.consumer-b.inventory \
             | jq -e '[.consumer_details[].prefetch_count] | length > 0 and all(. == 20)'
@@ -230,6 +232,15 @@ jobs:
           done
           # Found by its payload; the sample shows bodies with [SensitiveData] masked, and an order has none, so it's readable.
           admin "http://localhost:8082/admin/messaging/broker/dead-letters/messages?contains=XXX" | jq -e 'length >= 1 and all(.[]; .body | contains("XXX"))'
+          # Peeking returns the messages to the quorum queue; 25 peeks (past RabbitMQ 4's default limit of 20) lose none.
+          dead=$(admin http://localhost:8082/admin/messaging/broker/dead-letters | jq '.messages')
+          for i in $(seq 1 25); do admin "http://localhost:8082/admin/messaging/broker/dead-letters/messages" > /dev/null; done
+          # The count leaves out messages the last peek is still returning: let the requeue settle before comparing.
+          for i in $(seq 1 20); do
+            [ "$(admin http://localhost:8082/admin/messaging/broker/dead-letters | jq '.messages')" = "$dead" ] && break
+            [ "$i" = 20 ] && { echo "Peeking lost dead letters: $dead before, $(admin http://localhost:8082/admin/messaging/broker/dead-letters | jq '.messages') after"; exit 1; }
+            sleep 0.5
+          done
           # A filtered dry run counts the XXX order without replaying it; one for another queue matches nothing.
           before=$(admin http://localhost:8082/admin/messaging/broker/dead-letters | jq '.messages')
           admin -X POST "http://localhost:8082/admin/messaging/broker/dead-letters/replay?queue=gm.consumer-a.orders&dryRun=true" | jq -e '.matched >= 1 and .transferred == 0'
