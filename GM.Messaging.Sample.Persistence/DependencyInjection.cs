@@ -17,17 +17,16 @@ public static class DependencyInjection
 {
     public static IServiceCollection AddPersistence(this IServiceCollection services, IConfiguration configuration, bool runOutboxRelay = false)
     {
-        // Pooled contexts; UseGMMessaging adds GM.Messaging's interceptors, among them the one that wakes the relays as soon as a save
-        // adds outbox messages: this process's relay directly, relays in other processes over RabbitMQ.
-        services.AddDbContextPool<ApplicationDbContext>((serviceProvider, options) =>
+        // Pooled contexts with only our own settings: AddGMOutbox (below) attaches GM.Messaging's save interceptors, among them
+        // the one that wakes the relays as soon as a save adds outbox messages.
+        services.AddDbContextPool<ApplicationDbContext>(options =>
         {
             options.UseNpgsql(configuration.GetConnectionString("ApplicationDatabase"),
                 o =>
                 {
                     o.UseQuerySplittingBehavior(QuerySplittingBehavior.SplitQuery);
                     o.CommandTimeout(60);
-                }).UseSnakeCaseNamingConvention()
-                .UseGMMessaging(serviceProvider);
+                }).UseSnakeCaseNamingConvention();
         });
 
         services.AddTransient<IOutboxMessageRepository, OutboxMessageRepository>();

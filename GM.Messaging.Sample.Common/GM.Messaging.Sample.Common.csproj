@@ -13,9 +13,9 @@
     <ItemGroup>
         <PackageReference Include="GM.Exceptions" Version="1.3.0" />
         <!-- MessagingTelemetry.Name, and the OpenTelemetry setup every host shares (Telemetry/). -->
-        <PackageReference Include="GM.Messaging.Persistence" Version="4.12.0" />
+        <PackageReference Include="GM.Messaging.Persistence" Version="4.13.0" />
         <!-- MapGMMessagingAdmin, shared by every host (Admin/). -->
-        <PackageReference Include="GM.Messaging.AspNetCore" Version="4.12.0" />
+        <PackageReference Include="GM.Messaging.AspNetCore" Version="4.13.0" />
         <!-- The provider for the shared subject-key database (KeyManagement/). -->
         <PackageReference Include="Npgsql.EntityFrameworkCore.PostgreSQL" Version="10.0.3" />
         <PackageReference Include="EFCore.NamingConventions" Version="10.0.1" />
