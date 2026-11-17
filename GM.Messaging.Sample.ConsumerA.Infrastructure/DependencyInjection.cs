@@ -6,7 +6,7 @@ namespace GM.Messaging.Sample.ConsumerA.Infrastructure;
 
 public static class DependencyInjection
 {
-    /// <summary>GM.Messaging (Wolverine + RabbitMQ from configuration). Telemetry comes later, with GM.Telemetry.</summary>
+    /// <summary>GM.Messaging (Wolverine + RabbitMQ from configuration).</summary>
     public static IServiceCollection AddInfrastructure(
         this IServiceCollection services,
         IConfiguration configuration,

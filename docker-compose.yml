@@ -1,5 +1,4 @@
 # The whole GM.Messaging sample: PostgreSQL, RabbitMQ, the API, the producer worker (outbox relay) and two consumers.
-# (Traces and metrics come back with GM.Telemetry.)
 #
 #   docker compose up -d --build                                              # everything
 #   docker compose up -d --build --scale producer-worker=2                    # two relays (CI runs this)

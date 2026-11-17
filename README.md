@@ -32,7 +32,7 @@ GM.Messaging.Samples/
 │   └── GM.Messaging.Sample.StackTests       # GM.Testing.Messaging.Integration checks against the running stack
 ├── docs/                                    # architecture and operations
 ├── deploy/                                  # RabbitMQ (TLS, users), Data Protection keys
-└── Dockerfile, docker-compose.yml           # the whole stack, with traces and metrics
+└── Dockerfile, docker-compose.yml           # the whole stack
 ```
 
 Only the published **GM.*** packages are referenced — no project references into the library repos.
@@ -74,7 +74,7 @@ Every GM.Messaging feature, each where a real service would use it:
 | **Admin endpoints** for the outbox, inbox, broker queues and subject keys, behind an authorization policy | `MapGMMessagingAdmin()` (GM.Messaging.AspNetCore) in every host under `/admin/messaging`; the `messaging-admin` policy takes an `X-Admin-Key` header here. Message bodies show with `[SensitiveData]` masked (`BrokerMessageBodies.Redacted`) |
 | **No lost unrouted messages**: anything published with no queue bound is kept | The API's `ReturnRequested` has no consumer yet, so it waits in `gm.unrouted`; `POST /admin/messaging/broker/unrouted/move?exchange=gm.events` sends it on once a queue exists |
 | **Health checks** in every host: database, RabbitMQ, backlog, broker queues | `/health/ready` (`AddGMDatabaseCheck`, `AddGMMessagingCheck`, `AddGMMessagingBacklogCheck`; the workers add `AddGMBrokerQueueCheck`) |
-| **Broker queue depths**: what waits on RabbitMQ | GM.Messaging reads each worker's queues every 30 s for the broker queue health check (the `gm.messaging.broker.queue.*` metrics are exported once telemetry is back) |
+| **Broker queue depths**: what waits on RabbitMQ | GM.Messaging reads each worker's queues every 30 s for the broker queue health check |
 | **One consumer name per service** | `Messaging:Inbox:ConsumerName`; handlers call `ProcessAsync(message, handler)` |
 | **Retention** | Published outbox rows go after 7 days, handled inbox rows after 30 |
 | **Personal data in events**: only where needed, and encrypted | `UserRegistered.Email`/`Name` and `ReturnRequested.ContactEmail` are `[SensitiveData]` (set up by `AddGMOutbox`/`AddGMInbox` from the key ring in `Messaging:SensitiveData`): ciphertext in the outbox, the inbox and on RabbitMQ; other events carry ids only |

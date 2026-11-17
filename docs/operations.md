@@ -228,12 +228,6 @@ seconds. It reports `Degraded` when a consumer queue is over 80% of its 100,000-
 dead-letter or unrouted queue holds anything. In CI, ConsumerB's check goes `Degraded` while the XXX order waits
 in `gm.dead-letters`.
 
-## Traces and metrics
-
-Not in the sample for now: they come back with GM.Telemetry. GM.Messaging still records them: the `GM.Messaging`
-activity source and meter (`MessagingTelemetry.Name`), and the outbox row keeps the request's W3C trace context so
-the relay and the consumers continue its trace. They just aren't exported anywhere yet.
-
 ## Settings worth knowing
 
 | Setting | Where | Sample value |
