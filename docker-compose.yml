@@ -30,6 +30,8 @@ x-messaging: &messaging
   Messaging__RabbitMq__Port: "5671"
   Messaging__RabbitMq__UseTls: "true"
   Messaging__RabbitMq__TlsCaCertificatePath: /tls/ca.pem
+  # Quorum queues: every durable queue GM.Messaging declares is replicated across the cluster (one node here).
+  Messaging__RabbitMq__QueueType: Quorum
   # The key ring for [SensitiveData] values: every producer and consumer of those events has the same one.
   # sample-2026-12 is protected with Data Protection (dp:, keys in deploy/dataprotection); CI rotates to it with
   # SAMPLE_CURRENT_KEY_ID=sample-2026-12 and then re-wraps the per-person keys.

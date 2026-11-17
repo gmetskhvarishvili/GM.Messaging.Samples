@@ -135,6 +135,11 @@ jobs:
             | jq -e '([.[] | select(.user == "gm-consumer-a") | .auth_mechanism] | length > 0 and all(. == "EXTERNAL"))
                      and ([.[] | select(.user != "gm-consumer-a") | .auth_mechanism] | all(. == "PLAIN"))' \
             || { curl -s -u gm-admin:gm-admin-secret http://localhost:15672/api/connections | jq -c '[.[] | {user, auth_mechanism}]'; exit 1; }
+          # Quorum queues (Messaging:RabbitMq:QueueType): every durable queue GM.Messaging declared (the consumers' 8, the
+          # dead-letter and unrouted queues) is a quorum queue; only the temporary wake-up queues are classic.
+          queues=$(curl -s -u gm-admin:gm-admin-secret http://localhost:15672/api/queues)
+          echo "$queues" | jq -e '[.[] | select(.durable and (.name | startswith("gm."))) | .type] | length == 10 and all(. == "quorum")' \
+            || { echo "$queues" | jq -c '[.[] | {name, type, durable}]'; exit 1; }
 
       - name: A save in the API is published at once, not at the relays' next 30-second poll
         run: |
