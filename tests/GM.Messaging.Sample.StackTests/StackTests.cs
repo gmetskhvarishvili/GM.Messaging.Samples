@@ -2,7 +2,6 @@ using GM.Messaging.Broker;
 using GM.Messaging.Domain.Events;
 using GM.Messaging.Options;
 using GM.Messaging.Persistence.Protection;
-using GM.Messaging.Sample.Common.KeyManagement;
 using GM.Messaging.Sample.Domain.BoundedContext.MessagingBoundedContext.OutboxMessageAggregate;
 using GM.Messaging.Sample.Domain.Events;
 using GM.Messaging.Sample.Domain.Events.Orders;
@@ -11,6 +10,7 @@ using GM.Messaging.Sample.Domain.Events.Users;
 using GM.Messaging.Sample.Persistence.Context;
 using GM.Testing.Messaging.Integration;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Xunit;
 using ConsumerAContext = GM.Messaging.Sample.ConsumerA.Persistence.Context.ConsumerDbContext;
@@ -33,7 +33,8 @@ public class StackTests
     // Protection, keys in deploy/dataprotection) and the shared per-person key database.
     private static readonly Lazy<MessagingReader> Reader = new(() => MessagingReader.FromAppSettings(
         Path.Combine(RepositoryRoot(), "GM.Messaging.Sample.API", "appsettings.json"),
-        configureServices: (services, configuration) => services.AddSampleKeyManagement(configuration),
+        configureServices: (services, configuration) => services.AddGMSubjectKeys(db => db
+            .UseNpgsql(configuration.GetConnectionString("SubjectKeys")).UseSnakeCaseNamingConvention()),
         eventAssemblies: typeof(SampleEventVersions).Assembly));
 
     private static IntegrationEventRegistry Registry => Reader.Value.Registry;

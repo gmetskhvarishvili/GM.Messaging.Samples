@@ -1,4 +1,3 @@
-using GM.Messaging.Sample.Common.KeyManagement;
 using GM.Messaging.Persistence.Protection;
 using GM.Messaging;
 using GM.Messaging.Persistence;
@@ -31,29 +30,17 @@ public static class DependencyInjection
                 .UseGMMessaging(serviceProvider);
         });
 
-        // The key ring for [SensitiveData] values (Messaging:SensitiveData): UserRegistered's email and name are
-        // encrypted in the outbox and on RabbitMQ.
-        services.AddGMSensitiveData(configuration);
-        // Per-person keys (UserRegistered, ReturnRequested) in the shared messaging_keys database; GM.Messaging creates
-        // its table at startup.
-        services.AddSampleKeyManagement(configuration);
-
-        // Erasure requests reach the consumers: deleting a user's key also writes gm.subject-forgotten to the outbox.
-        services.AddGMSubjectErasureEvents<OutboxMessage, ApplicationDbContext>();
-
         services.AddTransient<IOutboxMessageRepository, OutboxMessageRepository>();
         services.AddTransient<IUnitOfWork, UnitOfWork.UnitOfWork>();
 
-        // Every host can inspect the outbox and requeue dead letters (the API exposes it under /admin).
-        services.AddGMOutboxAdministration<OutboxMessage, ApplicationDbContext>();
+        // Personal data in events: the key ring (Messaging:SensitiveData) and the per-person keys in the shared
+        // messaging_keys database (ConnectionStrings:SubjectKeys), which GM.Messaging creates at startup.
+        services.AddGMSensitiveData(configuration, subjectKeys: (db, connectionString) =>
+            db.UseNpgsql(connectionString).UseSnakeCaseNamingConvention());
 
-        // The relay leases each message, so several relays are safe; the producer worker runs it here.
-        // A process that only saves outbox messages (the API) still wakes the relays: each save sends a
-        // tiny RabbitMQ message that makes every relay publish at once instead of at its next poll.
-        if (runOutboxRelay)
-            services.AddGMOutboxRelay<OutboxMessage, ApplicationDbContext>();
-        else
-            services.AddGMOutboxWakeUp(configuration);
+        // The outbox: administration (/admin/messaging/outbox), erasure events (gm.subject-forgotten), and the relay in
+        // the producer worker or, in the API, the wake-up that makes every relay publish at once.
+        services.AddGMOutbox<OutboxMessage, ApplicationDbContext>(configuration, relay: runOutboxRelay);
 
         return services;
     }

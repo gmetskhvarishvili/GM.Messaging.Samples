@@ -65,8 +65,8 @@ Every GM.Messaging feature, each where a real service would use it:
 | Feature | Where |
 | --- | --- |
 | **Transactional outbox**: an event is saved with the change that raised it | API commands (`OutboxMessage.From`) |
-| **Leased relay** with publisher confirms, backoff retries and dead-lettering; safe to scale | Producer worker (`AddGMOutboxRelay`); CI runs two with `--scale producer-worker=2` |
-| **Instant publish across processes**: a save in the API wakes the relays over RabbitMQ | API (`AddGMOutboxWakeUp`); the relays poll only every 30 s, and CI checks events go out within seconds |
+| **Leased relay** with publisher confirms, backoff retries and dead-lettering; safe to scale | Producer worker (`AddGMOutbox(..., relay: true)`); CI runs two with `--scale producer-worker=2` |
+| **Instant publish across processes**: a save in the API wakes the relays over RabbitMQ | API (`AddGMOutbox(..., relay: false)`); the relays poll only every 30 s, and CI checks events go out within seconds |
 | **Stable event names**, also used for routing | `[IntegrationEventName("orders.order-placed")]`; `ProducerTopology` routes by name |
 | **Ordering keys** and a **sequential** consumer queue | Order and payment events keyed by order; ConsumerB's `order-timeline` queue |
 | **Event versions** with an upcaster, for stored rows and for events on the wire | `InventoryUpdated` v2 (`Warehouse` → `WarehouseCode`), registered with `AddGMIntegrationEvents` |
@@ -81,7 +81,7 @@ Every GM.Messaging feature, each where a real service would use it:
 | **One consumer name per service** | `Messaging:Inbox:ConsumerName`; handlers call `ProcessAsync(message, handler)` |
 | **Retention** | Published outbox rows go after 7 days, handled inbox rows after 30 |
 | **Personal data in events**: only where needed, and encrypted | `UserRegistered.Email`/`Name` and `ReturnRequested.ContactEmail` are `[SensitiveData]` (`AddGMSensitiveData`, key ring in `Messaging:SensitiveData`): ciphertext in the outbox, the inbox and on RabbitMQ; other events carry ids only |
-| **A key per person, and erasure** (crypto-shredding) | `[DataSubject]` on `UserId`/`CustomerId`; keys in the shared `messaging_keys` database (`AddGMSubjectKeys`, `EnsureKeyAsync` in the API). `DELETE /admin/messaging/subject-keys/{id}` makes that person's data unreadable everywhere, and `gm.subject-forgotten` (`AddGMSubjectErasureEvents`) has both consumers erase their own copies |
+| **A key per person, and erasure** (crypto-shredding) | `[DataSubject]` on `UserId`/`CustomerId`; keys in the shared `messaging_keys` database (`AddGMSensitiveData(..., subjectKeys: ...)`, `EnsureKeyAsync` in the API). `DELETE /admin/messaging/subject-keys/{id}` makes that person's data unreadable everywhere, and `gm.subject-forgotten` (`AddGMOutbox` registers it) has both consumers erase their own copies |
 | **Key rotation**, with the new key kept out of configuration | `sample-2026-12` is a `dp:` value (Data Protection, keys in `deploy/dataprotection`); CI makes it current and re-wraps every person's key (`POST /admin/messaging/subject-keys/rewrap`) |
 | **Quorum queues**: every durable queue replicated across the cluster | `Messaging:RabbitMq:QueueType: Quorum` in every service; CI checks all 10 `gm.*` queues are quorum |
 | **Queue limits**: a full queue refuses messages, which wait in the outbox; old dead letters expire | `MaxQueueLength: 100000` (`reject-publish`) on the consumer queues, `DeadLetterRetentionHours` / `UnroutedRetentionHours: 336` |
@@ -97,14 +97,11 @@ health, traces, metrics and settings.
 ## How GM.Messaging is wired
 
 ```csharp
-// Producer persistence: outbox admin everywhere; the relay in the producer worker; in the API, wake-ups
-// that make every relay publish as soon as a save adds outbox messages.
+// Producer persistence: personal data (the key ring and per-person keys) and the outbox (admin, erasure events,
+// and the relay in the producer worker or, in the API, wake-ups that make every relay publish at once).
 services.AddDbContextPool<ApplicationDbContext>((sp, o) => o.UseNpgsql(cs).UseGMMessaging(sp));   // every GM interceptor
-services.AddGMOutboxAdministration<OutboxMessage, ApplicationDbContext>();
-if (runOutboxRelay)
-    services.AddGMOutboxRelay<OutboxMessage, ApplicationDbContext>();
-else
-    services.AddGMOutboxWakeUp(configuration);
+services.AddGMSensitiveData(configuration, subjectKeys: (db, keys) => db.UseNpgsql(keys).UseSnakeCaseNamingConvention());
+services.AddGMOutbox<OutboxMessage, ApplicationDbContext>(configuration, relay: runOutboxRelay);
 
 // Event versions, wherever events are read (the relay, and consumers for older producers on the wire).
 builder.Services.AddGMIntegrationEvents(events => events
