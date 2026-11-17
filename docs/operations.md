@@ -220,6 +220,12 @@ producer worker, the inbox in the consumers. The backlog check reports `Degraded
 more than 1000 messages wait, the oldest has waited over 2 minutes, or messages are dead-lettered (more
 than 10 in ConsumerB, which dead-letters one email on purpose): work is late, but the service still runs.
 
+The workers also report `gm:messaging-broker-queues`: what waits on RabbitMQ itself, read by GM.Messaging every 30
+seconds. It reports `Degraded` when a consumer queue is over 80% of its 100,000-message limit, or when the
+dead-letter or unrouted queue holds anything. In CI, ConsumerB's check goes `Degraded` while the XXX order waits
+in `gm.dead-letters`. The same depths are in Prometheus as `gm_messaging_broker_queue_messages` (by `queue` and
+`role`) and `gm_messaging_broker_queue_limit`.
+
 ## Traces and metrics
 
 Every host sends traces and metrics over OTLP to the OpenTelemetry collector (`OTEL_EXPORTER_OTLP_ENDPOINT`;

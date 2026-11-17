@@ -20,7 +20,9 @@ builder.Services.AddPersistence(builder.Configuration);
 builder.Services.AddGMHealthChecks()
     .AddGMDatabaseCheck<ConsumerDbContext>()
     .AddGMMessagingCheck()
-    .AddGMMessagingBacklogCheck(backlog => backlog.MaxPendingAge = TimeSpan.FromMinutes(2));
+    .AddGMMessagingBacklogCheck(backlog => backlog.MaxPendingAge = TimeSpan.FromMinutes(2))
+    // What waits on RabbitMQ: consumer queues near their limit, dead letters, unrouted messages (GM.Messaging's queue monitor).
+    .AddGMBrokerQueueCheck();
 
 // GM.Messaging's admin endpoints under /admin/messaging (this host's outbox or inbox, and the broker queues),
 // behind the messaging-admin policy (an X-Admin-Key header in this sample).
