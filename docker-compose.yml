@@ -36,8 +36,8 @@ x-messaging: &messaging
   Messaging__SensitiveData__CurrentKeyId: ${SAMPLE_CURRENT_KEY_ID:-sample-2026-11}
   Messaging__SensitiveData__Keys__sample-2026-11: 0jhLQs7AjRkn9OLKULOvcGKQOili1qobbLtbx54iNF8=
   Messaging__SensitiveData__Keys__sample-2026-12: dp:CfDJ8IIqVXqQTlBMilxVLWaETfAH3NReVOPVIFJ6UbB3qhIc7PXLy2UrutkS0fXR92g3HxZfj1O-4mGsVlEoL5UpPFpeC90SXkIRCPXE0hdbyvz5cYetpgOl0gAH9udV0hRLPGVp6ZoB3P7PxSMKhLfZVE2kGSamIx09En7r_IwM3CyM
-  DataProtection__KeysPath: /dataprotection
-  # Per-person keys ([DataSubject]), shared by every service that reads those events; the API migrates it.
+  Messaging__SensitiveData__DataProtection__KeysPath: /dataprotection
+  # Per-person keys ([DataSubject]), shared by every service that reads those events; GM.Messaging creates the table.
   ConnectionStrings__SubjectKeys: "Host=postgres;Port=5432;Database=messaging_keys;Username=postgres;Password=123456"
   OTEL_EXPORTER_OTLP_ENDPOINT: http://otel-collector:4317
   # Metrics every 5 s instead of every minute, so Prometheus (and CI) see them quickly.

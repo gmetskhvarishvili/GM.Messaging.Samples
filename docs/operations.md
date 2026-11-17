@@ -158,11 +158,13 @@ email and the activity feed), and `ReturnRequested` a contact email, so those ar
 GM.Messaging encrypts them wherever the event is written (outbox and inbox rows, messages on RabbitMQ, dead
 letters), and handlers get the plain values.
 
-**A key per person.** Each of those events names its person with `[DataSubject]` (`UserRegistered.UserId`,
-`ReturnRequested.CustomerId`). Their values are encrypted with that person's own key, kept in the shared
-`messaging_keys` database (`subject_keys`, migrated by the API) and wrapped by the key ring in
-`Messaging:SensitiveData`. Every host registers it (`AddSampleKeyManagement`, next to `AddGMSensitiveData`).
-The API creates a person's key before writing their first event (`EnsureKeyAsync`).
+**A key per person.** Each of those events names its person with `[DataSubject]`:
+`[DataSubject(nameof(UserId))]` on `UserRegistered` (an inherited property), and on
+`ReturnRequested.CustomerId`. Their values are encrypted with that person's own key, wrapped by the key ring
+in `Messaging:SensitiveData`. The keys live in the shared `messaging_keys` database. Every host registers it
+with `AddGMSubjectKeys(db => db.UseNpgsql(...))`, and GM.Messaging creates the database and its
+`subject_keys` table at startup, so the sample has no DbContext or migration for it. The API creates a
+person's key before writing their first event (`EnsureKeyAsync`).
 
 **Erasure requests.** Deleting the person's key makes their data unreadable in every copy of every event:
 the outbox, both inboxes, dead letters and backups. Handlers reading those events get `null` for the
@@ -176,12 +178,15 @@ Data a service copied into its own tables (ConsumerB's `welcome_emails`) is that
 Running processes cache keys for up to `SubjectKeyCacheSeconds` (60).
 
 **Keys outside configuration.** `sample-2026-12` is a `dp:` value, protected with ASP.NET Core Data
-Protection. Only processes with the Data Protection keys in `deploy/dataprotection` (application name
-`GM.Messaging.Sample`, mounted read-only into each container) can use it. In production, keep Data
-Protection's keys in a shared store protected by Azure Key Vault or AWS KMS. Or implement
-`ISensitiveDataKeyRing` against your key service. A new protected key comes from
-`SensitiveDataKeys.ProtectWithDataProtection(provider, SensitiveDataKeys.Generate())`.
+Protection. Only processes with the Data Protection keys in `deploy/dataprotection`, mounted read-only into
+each container, can use it. GM.Messaging reads them through `Messaging:SensitiveData:DataProtection`
+(`KeysPath`, `ApplicationName: GM.Messaging.Sample`) with its own Data Protection, so the hosts set up
+nothing for it. In production, keep Data Protection's keys in a shared store protected by Azure Key Vault or
+AWS KMS. Or implement `ISensitiveDataKeyRing` against your key service. To make the next key, ask any host:
 
+```bash
+curl -H "$ADMIN" -X POST http://localhost:8080/admin/messaging/sensitive-data/keys   # {"value":"dp:..."}: add it under Keys
+```
 **Rotating the key ring.** CI does this after its other checks:
 
 ```bash

@@ -2,7 +2,6 @@
 using GM.HealthChecks.EntityFramework;
 using GM.HealthChecks.Messaging;
 using GM.Messaging.Sample.Common.Admin;
-using GM.Messaging.Sample.Common.KeyManagement;
 using GM.Messaging.Sample.Common.Telemetry;
 using OpenTelemetry.Trace;
 using GM.Messaging.Sample.Persistence;
@@ -49,11 +48,6 @@ using (var scope = app.Services.CreateScope())
         {
             if ((await context.Database.GetPendingMigrationsAsync()).Any())
                 await context.Database.MigrateAsync();
-
-            // The shared per-person key database: the API owns it too.
-            var keys = scope.ServiceProvider.GetRequiredService<SubjectKeysDbContext>();
-            if ((await keys.Database.GetPendingMigrationsAsync()).Any())
-                await keys.Database.MigrateAsync();
 
             var logger = scope.ServiceProvider.GetService<ILogger<ApplicationDbContextSeed>>();
             if (logger != null)

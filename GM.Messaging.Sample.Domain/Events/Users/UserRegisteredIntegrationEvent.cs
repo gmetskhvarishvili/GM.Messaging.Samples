@@ -10,6 +10,7 @@ namespace GM.Messaging.Sample.Domain.Events.Users;
 /// don't need personal data carry ids only.
 /// </summary>
 [IntegrationEventName("users.user-registered")]
+[DataSubject(nameof(UserId))] // IntegrationEvent.UserId: the registered user, whose key encrypts Email and Name
 public sealed record UserRegisteredIntegrationEvent : IntegrationEvent
 {
     public UserRegisteredIntegrationEvent(Guid? userId, string email, string name)
@@ -17,14 +18,6 @@ public sealed record UserRegisteredIntegrationEvent : IntegrationEvent
         UserId = userId;
         Email = email;
         Name = name;
-    }
-
-    /// <summary>The registered user, whose key encrypts <see cref="Email"/> and <see cref="Name"/>.</summary>
-    [DataSubject]
-    public new Guid? UserId
-    {
-        get => base.UserId;
-        init => base.UserId = value;
     }
 
     [SensitiveData]

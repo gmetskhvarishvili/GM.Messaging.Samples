@@ -38,7 +38,7 @@ public class StackTests
         var root = RepositoryRoot();
         var configuration = new ConfigurationBuilder()
             .AddJsonFile(Path.Combine(root, "GM.Messaging.Sample.API", "appsettings.json"))
-            .AddInMemoryCollection(new Dictionary<string, string?> { ["DataProtection:KeysPath"] = Path.Combine(root, "deploy", "dataprotection") })
+            .AddInMemoryCollection(new Dictionary<string, string?> { ["Messaging:SensitiveData:DataProtection:KeysPath"] = Path.Combine(root, "deploy", "dataprotection") })
             .Build();
         var services = new ServiceCollection().AddLogging();
         services.AddGMIntegrationEvents(events => events.AddAssembly(typeof(SampleEventVersions).Assembly), isolated: true);

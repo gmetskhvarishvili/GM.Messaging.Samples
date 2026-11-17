@@ -330,6 +330,8 @@ jobs:
           admin -X POST http://localhost:8080/admin/messaging/subject-keys/rewrap | jq -e ". == $old"
           [ "$(q messaging_keys "select count(*) from messaging.subject_keys where wrapped_key not like 'k1:sample-2026-12:%'")" = "0" ]
           admin -X POST http://localhost:8080/admin/messaging/subject-keys/rewrap | jq -e '. == 0'
+          # The next rotation's key, made by a host in its dp: form (the raw key never leaves the process).
+          admin -X POST http://localhost:8080/admin/messaging/sensitive-data/keys | jq -e '.value | startswith("dp:")'
           # Everything still flows: a user registered now gets a key wrapped with the new key and a welcome email.
           user=$(cat /proc/sys/kernel/random/uuid)
           curl -sf -H 'Content-Type: application/json' http://localhost:8080/api/v1/users \

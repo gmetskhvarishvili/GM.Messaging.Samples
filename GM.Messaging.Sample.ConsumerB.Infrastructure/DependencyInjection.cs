@@ -18,8 +18,8 @@ public static class DependencyInjection
         services.AddGMMessaging(configuration, configureWolverine);
         // Decrypts [SensitiveData] values (the key ring in Messaging:SensitiveData, shared with the producer).
         services.AddGMSensitiveData(configuration);
-        // Per-person keys (UserRegistered, ReturnRequested) in the shared messaging_keys database, and Data Protection
-        // for the dp: keys in the key ring.
+        // Per-person keys (UserRegistered, ReturnRequested) in the shared messaging_keys database; GM.Messaging creates
+        // its table at startup.
         services.AddSampleKeyManagement(configuration);
         services.AddSampleTelemetry(configuration);
 
