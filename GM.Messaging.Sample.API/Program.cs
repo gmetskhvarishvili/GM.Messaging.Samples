@@ -1,7 +1,5 @@
 ﻿using GM.API.Startup;
-using GM.HealthChecks.EntityFramework;
-using GM.HealthChecks.Messaging;
-using GM.Messaging.AspNetCore;
+using GM.Messaging.Sample.Infrastructure;
 using GM.Messaging.Sample.Persistence;
 using GM.Messaging.Sample.Persistence.Context;
 using Microsoft.EntityFrameworkCore;
@@ -14,13 +12,7 @@ builder.Services.ConfigureGMServices(
     "SwaggerDocOptions");
 
 builder.Services.AddPersistence(builder.Configuration);
-
-// GM.API maps /health/live, /health/ready and /health/startup. Readiness also checks the database, and
-// the outbox backlog (pending messages, the oldest one's age, dead letters) reports Degraded when the
-// relay falls behind or gives up on messages.
-builder.Services.AddHealthChecks()
-    .AddGMDatabaseCheck<ApplicationDbContext>()
-    .AddGMMessagingBacklogCheck(backlog => backlog.MaxPendingAge = TimeSpan.FromMinutes(2));
+builder.Services.AddInfrastructure(builder.Configuration);
 
 var app = builder.Build();
 
@@ -28,14 +20,7 @@ app.UseRouting();
 app.UseAuthentication();
 app.UseAuthorization();
 app.UseGMServices();
-// GM.Messaging's admin endpoints under /admin/messaging (whatever this host has: outbox, inbox, broker queues,
-// subject keys). The sample has no login, so they're open; a real service passes its own policy:
-// admin.AuthorizationPolicy = "your-policy". Broker message bodies show with [SensitiveData] masked.
-app.MapGMMessagingAdmin(admin =>
-{
-    admin.AllowAnonymous = true;
-    admin.MessageBodies = BrokerMessageBodies.Redacted;
-});
+app.MapInfrastructure();
 
 using (var scope = app.Services.CreateScope())
 {
