@@ -47,7 +47,7 @@ public class OutboxMessageTests
         var outbox = OutboxMessage.From(new UserRegisteredIntegrationEvent(userId, "ana@example.test", "Ana"));
 
         // UserId stays readable (once, though the event redeclares it to mark it [DataSubject]) and names whose key is used.
-        Assert.Single(JsonDocument.Parse(outbox.Payload).RootElement.EnumerateObject(), p => p.Name.Equals("UserId", StringComparison.OrdinalIgnoreCase));
+        Assert.Single(JsonElement.Parse(outbox.Payload).EnumerateObject(), p => p.Name.Equals("UserId", StringComparison.OrdinalIgnoreCase));
         Assert.Contains(userId.ToString(), TestSensitiveDataProtector.Subjects);
         var read = (UserRegisteredIntegrationEvent)IntegrationEventSerializer.Deserialize(outbox.Payload, typeof(UserRegisteredIntegrationEvent), outbox.EventVersion);
         Assert.Equal(userId, read.UserId);

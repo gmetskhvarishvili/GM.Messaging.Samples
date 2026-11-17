@@ -114,7 +114,9 @@ jobs:
           set -e
           # The plain AMQP port is closed; the TLS one presents a certificate the sample CA vouches for.
           if (exec 3<>/dev/tcp/localhost/5672) 2>/dev/null; then echo "Plain AMQP (5672) should be closed"; exit 1; fi
-          echo | openssl s_client -connect localhost:5671 -servername rabbitmq -CAfile deploy/tls/certs/ca.pem -verify_return_error 2>/dev/null | grep -q "Verify return code: 0 (ok)"
+          # (RabbitMQ asks for a client certificate now, for ConsumerA; clients without one still connect.)
+          tls=$(echo | openssl s_client -connect localhost:5671 -servername rabbitmq -CAfile deploy/tls/certs/ca.pem 2>&1 || true)
+          echo "$tls" | grep -Eq "Verify return code: 0 \(ok\)|Verification: OK" || { echo "$tls"; exit 1; }
           # Each service has its own user; the API may only use the wake-up exchange and reads no queue.
           users=$(curl -s -u gm-admin:gm-admin-secret http://localhost:15672/api/users | jq -r '[.[].name] | sort | join(",")')
           [ "$users" = "gm-admin,gm-api,gm-consumer-a,gm-consumer-b,gm-producer" ] || { echo "users: $users"; exit 1; }
