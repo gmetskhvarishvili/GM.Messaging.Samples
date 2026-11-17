@@ -1,4 +1,5 @@
 using GM.EntityFramework.Domain.Exceptions;
+using GM.Messaging.Sample.ConsumerA.Domain.BoundedContext.ActivityBoundedContext.Interfaces;
 using GM.Messaging.Sample.ConsumerA.Domain.BoundedContext.MessagingBoundedContext.InboxMessageAggregate.Interfaces;
 using GM.Messaging.Sample.ConsumerA.Domain.SeedWork;
 using GM.Messaging.Sample.ConsumerA.Persistence.Context;
@@ -9,11 +10,14 @@ namespace GM.Messaging.Sample.ConsumerA.Persistence.UnitOfWork;
 
 public sealed class ConsumerUnitOfWork(
     ConsumerDbContext context,
-    IInboxMessageRepository inboxMessageRepository) : IConsumerUnitOfWork
+    IInboxMessageRepository inboxMessageRepository,
+    ICustomerActivityRepository customerActivityRepository) : IConsumerUnitOfWork
 {
     private IDbContextTransaction? _transaction;
 
     public IInboxMessageRepository InboxMessageRepository { get; } = inboxMessageRepository;
+
+    public ICustomerActivityRepository CustomerActivityRepository { get; } = customerActivityRepository;
 
     public async Task<int> SaveChangesAsync(CancellationToken cancellationToken = default)
     {

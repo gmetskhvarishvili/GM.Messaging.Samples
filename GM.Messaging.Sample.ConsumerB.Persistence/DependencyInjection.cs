@@ -1,5 +1,6 @@
 using GM.Messaging.Persistence.Protection;
 using GM.Messaging.Persistence;
+using GM.Messaging.Sample.ConsumerB.Domain.BoundedContext.FulfilmentBoundedContext.Interfaces;
 using GM.Messaging.Sample.ConsumerB.Domain.BoundedContext.MessagingBoundedContext.InboxMessageAggregate;
 using GM.Messaging.Sample.ConsumerB.Domain.BoundedContext.MessagingBoundedContext.InboxMessageAggregate.Interfaces;
 using GM.Messaging.Sample.ConsumerB.Domain.SeedWork;
@@ -27,6 +28,9 @@ public static class DependencyInjection
         });
 
         services.AddTransient<IInboxMessageRepository, InboxMessageRepository>();
+        services.AddTransient<IOrderTimelineEntryRepository, OrderTimelineEntryRepository>();
+        services.AddTransient<IStockLevelRepository, StockLevelRepository>();
+        services.AddTransient<IWelcomeEmailRepository, WelcomeEmailRepository>();
         services.AddTransient<IConsumerUnitOfWork, UnitOfWork.ConsumerUnitOfWork>();
         // The inbox, its save interceptors on ConsumerDbContext, and personal data from configuration: the key ring
         // (Messaging:SensitiveData, shared with the producer) and the per-person keys in the shared messaging_keys database.

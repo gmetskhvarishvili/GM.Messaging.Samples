@@ -1,8 +1,6 @@
 using GM.Messaging.Domain.Events;
 using GM.Messaging.Persistence.Inbox;
-using GM.Messaging.Sample.ConsumerB.Domain.BoundedContext.FulfilmentBoundedContext;
-using GM.Messaging.Sample.ConsumerB.Persistence.Context;
-using Microsoft.EntityFrameworkCore;
+using GM.Messaging.Sample.ConsumerB.Domain.SeedWork;
 
 namespace GM.Messaging.Sample.ConsumerB.Worker.Handlers;
 
@@ -12,10 +10,12 @@ namespace GM.Messaging.Sample.ConsumerB.Worker.Handlers;
 /// </summary>
 public class SubjectForgottenHandler
 {
-    public static Task Handle(SubjectForgottenIntegrationEvent message, IInboxProcessor inbox, ConsumerDbContext db, CancellationToken ct) =>
+    public static Task Handle(SubjectForgottenIntegrationEvent message, IInboxProcessor inbox, IConsumerUnitOfWork unitOfWork, CancellationToken ct) =>
         inbox.ProcessAsync(message, async () =>
         {
-            if (Guid.TryParse(message.Subject, out var userId))
-                db.RemoveRange(await db.Set<WelcomeEmail>().Where(e => e.UserId == userId).ToListAsync(ct));
+            if (!Guid.TryParse(message.Subject, out var userId))
+                return;
+            var emails = unitOfWork.WelcomeEmailRepository;
+            emails.RemoveRange(await emails.FindAsync(e => e.UserId == userId, cancellationToken: ct));
         }, ct);
 }

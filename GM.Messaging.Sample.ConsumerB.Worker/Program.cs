@@ -21,9 +21,9 @@ builder.Services.AddGMIntegrationEvents(events => events
     .AddAssembly(typeof(SampleEventVersions).Assembly)
     .AddUpcaster<InventoryUpdatedIntegrationEvent>(fromVersion: 1, SampleEventVersions.InventoryUpdatedV1ToV2));
 
-// Handlers take ConsumerDbContext as well as IInboxProcessor; AddGMInbox (in AddPersistence) tells
-// Wolverine to resolve it from the message's scope, so both share one instance and a handler's changes
-// commit with the inbox row.
+// Handlers take IConsumerUnitOfWork as well as IInboxProcessor. AddGMInbox (in AddPersistence) tells Wolverine to
+// resolve ConsumerDbContext from the message's scope, so the unit of work's repositories and the inbox share one
+// instance and a handler's changes commit with the inbox row.
 builder.Services.AddInfrastructure(builder.Configuration);
 builder.Services.AddPersistence(builder.Configuration);
 
