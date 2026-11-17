@@ -4,8 +4,6 @@
 @api = http://localhost:8080/api/v1
 @consumerB = http://localhost:8082
 @apiHost = http://localhost:8080
-# GM.Messaging admin endpoints (/admin/messaging) need this header; docker-compose sets the key.
-@adminKey = sample-admin-key
 @orderId = 3f2c7a10-5b1e-4c8d-9a6f-1e2d3c4b5a60
 
 ### Place an order (event: orders.order-placed, ordering key = the order id)
@@ -52,62 +50,48 @@ Content-Type: application/json
 
 ### Outbox backlog: pending, oldest pending, dead-lettered
 GET {{apiHost}}/admin/messaging/outbox
-X-Admin-Key: {{adminKey}}
 
 ### Dead-lettered outbox messages
 GET {{apiHost}}/admin/messaging/outbox/dead-letters
-X-Admin-Key: {{adminKey}}
 
 ### Requeue one dead-lettered message (after fixing its cause)
 POST {{apiHost}}/admin/messaging/outbox/dead-letters/00000000-0000-0000-0000-000000000000/requeue
-X-Admin-Key: {{adminKey}}
 
 ### Requeue every dead-lettered message
 POST {{apiHost}}/admin/messaging/outbox/dead-letters/requeue
-X-Admin-Key: {{adminKey}}
 
 ### Delete dead-lettered messages older than a date
 DELETE {{apiHost}}/admin/messaging/outbox/dead-letters?before=2030-01-01T00:00:00Z
-X-Admin-Key: {{adminKey}}
 
 ### Readiness: database + outbox backlog
 GET http://localhost:8080/health/ready
 
 ### ConsumerB's inbox backlog (the inbox worker's pending and dead-lettered rows)
 GET {{consumerB}}/admin/messaging/inbox
-X-Admin-Key: {{adminKey}}
 
 ### ConsumerB's dead-lettered inbox rows (the bounced welcome email)
 GET {{consumerB}}/admin/messaging/inbox/dead-letters
-X-Admin-Key: {{adminKey}}
 
 ### Requeue one dead-lettered inbox row
 POST {{consumerB}}/admin/messaging/inbox/dead-letters/consumer-b/00000000-0000-0000-0000-000000000000/requeue
-X-Admin-Key: {{adminKey}}
 
 ### The broker's dead-letter queue (messages Wolverine gave up on, such as the XXX order)
 GET {{consumerB}}/admin/messaging/broker/dead-letters
-X-Admin-Key: {{adminKey}}
 
 ### Look at them without consuming them
 GET {{consumerB}}/admin/messaging/broker/dead-letters/messages
-X-Admin-Key: {{adminKey}}
 
 ### Replay them to their original queues (after fixing the cause)
 POST {{consumerB}}/admin/messaging/broker/dead-letters/replay
-X-Admin-Key: {{adminKey}}
 
 ### Dry run: count what a replay of ConsumerA's orders would send back, without touching anything
 POST {{consumerB}}/admin/messaging/broker/dead-letters/replay?queue=gm.consumer-a.orders&dryRun=true
-X-Admin-Key: {{adminKey}}
 
 ### Unrouted messages: published to an exchange with no queue bound for them
 GET {{consumerB}}/admin/messaging/broker/unrouted
-X-Admin-Key: {{adminKey}}
 
 ### Move unrouted messages back to their exchange once a queue is bound
 POST {{consumerB}}/admin/messaging/broker/unrouted/move?exchange=gm.events
-X-Admin-Key: {{adminKey}}
 
 ### Every worker's readiness: database, RabbitMQ and its backlog
 GET http://localhost:8081/health/ready

@@ -1,4 +1,4 @@
-using GM.Messaging.Sample.Common.Admin;
+using GM.Messaging.AspNetCore;
 using GM.HealthChecks;
 using GM.HealthChecks.EntityFramework;
 using GM.HealthChecks.Messaging;
@@ -45,14 +45,17 @@ builder.Services.AddGMHealthChecks()
     // What waits on RabbitMQ: consumer queues near their limit, dead letters, unrouted messages (GM.Messaging's queue monitor).
     .AddGMBrokerQueueCheck();
 
-// GM.Messaging's admin endpoints under /admin/messaging (this host's outbox or inbox, and the broker queues),
-// behind the messaging-admin policy (an X-Admin-Key header in this sample).
-builder.Services.AddSampleMessagingAdmin(builder.Configuration);
-
 var app = builder.Build();
 
 app.MapGMHealthChecks();
-app.MapSampleMessagingAdmin();
+// GM.Messaging's admin endpoints under /admin/messaging (whatever this host has: outbox, inbox, broker queues,
+// subject keys). The sample has no login, so they're open; a real service passes its own policy:
+// admin.AuthorizationPolicy = "your-policy". Broker message bodies show with [SensitiveData] masked.
+app.MapGMMessagingAdmin(admin =>
+{
+    admin.AllowAnonymous = true;
+    admin.MessageBodies = BrokerMessageBodies.Redacted;
+});
 
 using (var scope = app.Services.CreateScope())
 {

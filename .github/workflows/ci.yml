@@ -187,14 +187,12 @@ jobs:
           [ "$(published)" = "9" ] || { echo "gm.events received $(published) messages, expected 9"; exit 1; }
 
       - name: The admin endpoints and health checks report the backlog and dead letters
-        env:
-          ADMIN_KEY: sample-admin-key   # Admin__ApiKey in docker-compose.yml
         run: |
           set -e
-          # An admin call with the key; on anything but 2xx it prints the status, the body and the host's logs.
+          # An admin call; on anything but 2xx it prints the status, the body and the host's logs.
           admin() {
             local code
-            code=$(curl -s -o /tmp/admin-body -w '%{http_code}' -H "X-Admin-Key: $ADMIN_KEY" "$@")
+            code=$(curl -s -o /tmp/admin-body -w '%{http_code}' "$@")
             if [ "${code:0:1}" != "2" ]; then
               echo "FAILED $* -> HTTP $code: $(cat /tmp/admin-body)" >&2
               docker compose logs --tail 60 >&2
@@ -202,9 +200,6 @@ jobs:
             fi
             cat /tmp/admin-body
           }
-          # GM.Messaging.AspNetCore's endpoints require the messaging-admin policy: no key or a wrong one is refused.
-          [ "$(curl -s -o /dev/null -w '%{http_code}' http://localhost:8080/admin/messaging/outbox)" = "401" ]
-          [ "$(curl -s -o /dev/null -w '%{http_code}' -H 'X-Admin-Key: wrong' http://localhost:8082/admin/messaging/inbox)" = "401" ]
           # Every host maps what it has: the producer workers their outbox, ConsumerA its inbox (the XXX order).
           admin http://localhost:8083/admin/messaging/outbox | jq -e '.pending == 0'
           admin http://localhost:8081/admin/messaging/inbox/dead-letters | jq -e 'length == 1 and .[0].retriedByInboxWorker == false'
@@ -252,12 +247,10 @@ jobs:
           done
 
       - name: Recovery — fix ConsumerA, replay its dead letter, and it's handled once
-        env:
-          ADMIN_KEY: sample-admin-key
         run: |
           set -e
           q() { docker compose exec -T postgres psql -U postgres -d "$1" -tAc "$2"; }
-          admin() { curl -sf -H "X-Admin-Key: $ADMIN_KEY" "$@"; }
+          admin() { curl -sf "$@"; }
           dead_before=$(admin http://localhost:8082/admin/messaging/broker/dead-letters | jq '.messages')
           [ "$dead_before" -ge 1 ]
           # "Deploy the fix": ConsumerA now accepts orders in XXX.
@@ -274,12 +267,10 @@ jobs:
           [ "$(admin http://localhost:8082/admin/messaging/broker/dead-letters | jq '.messages')" = "$((dead_before - 1))" ]
 
       - name: Unrouted — a message no queue is bound for is kept, then moved once one exists
-        env:
-          ADMIN_KEY: sample-admin-key
         run: |
           set -e
           mq() { curl -sf -u gm-admin:gm-admin-secret -H 'content-type: application/json' "$@"; }
-          admin() { curl -sf -H "X-Admin-Key: $ADMIN_KEY" "$@"; }
+          admin() { curl -sf "$@"; }
           # A new kind of event goes out before any consumer for it exists: the API publishes ReturnRequested
           # (routing key returns.requested), no queue is bound for it, and RabbitMQ hands it to gm.unrouted.
           return_id=$(cat /proc/sys/kernel/random/uuid)
@@ -318,12 +309,10 @@ jobs:
           echo "ConsumerB didn't handle the version-1 event"; docker compose logs --tail 60 consumer-b; exit 1
 
       - name: Scheduled event — a reminder is saved now and published only when it's due
-        env:
-          ADMIN_KEY: sample-admin-key
         run: |
           set -e
           q() { docker compose exec -T postgres psql -U postgres -d "$1" -tAc "$2"; }
-          admin() { curl -sf -H "X-Admin-Key: $ADMIN_KEY" "$@"; }
+          admin() { curl -sf "$@"; }
           customer=$(cat /proc/sys/kernel/random/uuid)
           start=$(date +%s)
           curl -sf -H 'Content-Type: application/json' http://localhost:8080/api/v1/reminders \
@@ -364,8 +353,6 @@ jobs:
           [ "$files" -ge 1 ]
 
       - name: Erasure — deleting a user's key makes their personal data unreadable everywhere
-        env:
-          ADMIN_KEY: sample-admin-key
         run: |
           set -e
           q() { docker compose exec -T postgres psql -U postgres -d "$1" -tAc "$2"; }
@@ -380,8 +367,8 @@ jobs:
           done
           [ "$(q messaging_keys "select count(*) from messaging.subject_keys where subject_id = '$user'")" = "1" ]
           # The erasure request: the API's admin endpoint deletes the user's key (a second request finds none).
-          [ "$(curl -s -o /dev/null -w '%{http_code}' -X DELETE -H "X-Admin-Key: $ADMIN_KEY" "http://localhost:8080/admin/messaging/subject-keys/$user")" = "204" ]
-          [ "$(curl -s -o /dev/null -w '%{http_code}' -X DELETE -H "X-Admin-Key: $ADMIN_KEY" "http://localhost:8080/admin/messaging/subject-keys/$user")" = "404" ]
+          [ "$(curl -s -o /dev/null -w '%{http_code}' -X DELETE "http://localhost:8080/admin/messaging/subject-keys/$user")" = "204" ]
+          [ "$(curl -s -o /dev/null -w '%{http_code}' -X DELETE "http://localhost:8080/admin/messaging/subject-keys/$user")" = "404" ]
           [ "$(q messaging_keys "select count(*) from messaging.subject_keys where subject_id = '$user'")" = "0" ]
           # The event is still in the outbox and the inboxes, but its email and name can't be decrypted any more
           # (the stack tests read it back). The erasure also went out as gm.subject-forgotten (once per request, so
@@ -398,12 +385,10 @@ jobs:
           [ "$(q messaging_consumer_a "select count(*) from application.customer_activities where customer_id = '$user' and reference = '[erased]'")" = "1" ]
 
       - name: Key rotation — switch to the Data Protection-protected key, then re-wrap every user's key
-        env:
-          ADMIN_KEY: sample-admin-key
         run: |
           set -e
           q() { docker compose exec -T postgres psql -U postgres -d "$1" -tAc "$2"; }
-          admin() { curl -sf -H "X-Admin-Key: $ADMIN_KEY" "$@"; }
+          admin() { curl -sf "$@"; }
           # Deploy with sample-2026-12 (a dp: value, unprotected with the keys in deploy/dataprotection) as the current key.
           SAMPLE_CURRENT_KEY_ID=sample-2026-12 docker compose up -d --no-build --scale producer-worker=2
           ready() { curl -sf "http://localhost:$1/health/ready" >/dev/null; }

@@ -28,15 +28,9 @@ Every host calls `MapGMMessagingAdmin()` (GM.Messaging.AspNetCore), which maps e
 | Producer workers (8083, 8084) | `outbox`, `broker/dead-letters`, `broker/unrouted` |
 | ConsumerA (8081), ConsumerB (8082) | `inbox`, `broker/dead-letters`, `broker/unrouted` |
 
-They require the `messaging-admin` authorization policy. The sample has no identity provider, so that
-policy accepts an API key in the `X-Admin-Key` header (`Admin:ApiKey`; docker-compose sets
-`sample-admin-key`, appsettings has `local-dev-admin-key` for `dotnet run`). Without the key a request
-gets 401. In a real service, point the policy at your own authentication (JWT, mTLS, ...). The examples
-below use:
-
-```bash
-ADMIN="X-Admin-Key: sample-admin-key"
-```
+The sample has no login, so it maps them with `AllowAnonymous = true`. In a real service, pass your own
+policy instead: `app.MapGMMessagingAdmin(admin => admin.AuthorizationPolicy = "your-policy")`. Without
+either, they require the default policy (an authenticated user).
 
 ## Dead letters
 
@@ -45,27 +39,27 @@ There are three places a message can end up after its last attempt, each with it
 **Outbox** (events the relay couldn't publish), through the API (`IOutboxAdministration`):
 
 ```bash
-curl -H "$ADMIN" http://localhost:8080/admin/messaging/outbox                      # backlog
-curl -H "$ADMIN" http://localhost:8080/admin/messaging/outbox/dead-letters         # what failed, and why
-curl -H "$ADMIN" -X POST http://localhost:8080/admin/messaging/outbox/dead-letters/requeue   # retry all, after fixing the cause
+curl http://localhost:8080/admin/messaging/outbox                      # backlog
+curl http://localhost:8080/admin/messaging/outbox/dead-letters         # what failed, and why
+curl -X POST http://localhost:8080/admin/messaging/outbox/dead-letters/requeue   # retry all, after fixing the cause
 ```
 
 **Inbox** (events ConsumerB's inbox worker gave up on), through ConsumerB (`IInboxAdministration`):
 
 ```bash
-curl -H "$ADMIN" http://localhost:8082/admin/messaging/inbox                              # backlog
-curl -H "$ADMIN" http://localhost:8082/admin/messaging/inbox/dead-letters                 # what failed, and why
-curl -H "$ADMIN" -X POST http://localhost:8082/admin/messaging/inbox/dead-letters/requeue # retry all
+curl http://localhost:8082/admin/messaging/inbox                              # backlog
+curl http://localhost:8082/admin/messaging/inbox/dead-letters                 # what failed, and why
+curl -X POST http://localhost:8082/admin/messaging/inbox/dead-letters/requeue # retry all
 ```
 
 **The broker's dead-letter queue** `gm.dead-letters` (messages Wolverine moved there after a consumer's
 last retry, such as ConsumerA's XXX order), through ConsumerB (`IBrokerQueueAdministration`):
 
 ```bash
-curl -H "$ADMIN" http://localhost:8082/admin/messaging/broker/dead-letters                # how many
-curl -H "$ADMIN" "http://localhost:8082/admin/messaging/broker/dead-letters/messages?contains=XXX"  # look without consuming: original queue, reason, body ([SensitiveData] masked)
-curl -H "$ADMIN" -X POST http://localhost:8082/admin/messaging/broker/dead-letters/replay # back to each message's original queue
-curl -H "$ADMIN" -X POST "http://localhost:8082/admin/messaging/broker/dead-letters/replay?queue=gm.consumer-a.orders&dryRun=true"  # only count
+curl http://localhost:8082/admin/messaging/broker/dead-letters                # how many
+curl "http://localhost:8082/admin/messaging/broker/dead-letters/messages?contains=XXX"  # look without consuming: original queue, reason, body ([SensitiveData] masked)
+curl -X POST http://localhost:8082/admin/messaging/broker/dead-letters/replay # back to each message's original queue
+curl -X POST "http://localhost:8082/admin/messaging/broker/dead-letters/replay?queue=gm.consumer-a.orders&dryRun=true"  # only count
 ```
 
 The replay, move and messages endpoints take `type`, `queue` (the original queue), `routingKey`, `max`
@@ -83,12 +77,12 @@ CI walks through this after every run; you can do the same on a local stack:
 
 ```bash
 # 1. Fix the cause. Here: tell ConsumerA to accept XXX (a stand-in for a deployed fix).
-curl -H "$ADMIN" -X POST http://localhost:8081/admin/sample/accept-failing-currency
+curl -X POST http://localhost:8081/admin/sample/accept-failing-currency
 # 2. Replay the order from the broker's dead-letter queue to ConsumerA's queue.
-curl -H "$ADMIN" -X POST "http://localhost:8082/admin/messaging/broker/dead-letters/replay?queue=gm.consumer-a.orders"
+curl -X POST "http://localhost:8082/admin/messaging/broker/dead-letters/replay?queue=gm.consumer-a.orders"
 # 3. The handler runs again: the inbox row is processed (no longer dead-lettered), the activity is recorded,
 #    and the dead-letter queue is one message shorter.
-curl -H "$ADMIN" http://localhost:8081/admin/messaging/inbox/dead-letters
+curl http://localhost:8081/admin/messaging/inbox/dead-letters
 ```
 
 ## Unrouted messages
@@ -98,8 +92,8 @@ where no queue is bound for it (a consumer that hasn't started yet, a wrong rout
 `gm.unrouted` queue instead of being dropped. Once the consumer's queue exists:
 
 ```bash
-curl -H "$ADMIN" http://localhost:8082/admin/messaging/broker/unrouted                                 # how many
-curl -H "$ADMIN" -X POST "http://localhost:8082/admin/messaging/broker/unrouted/move?exchange=gm.events" # publish them again
+curl http://localhost:8082/admin/messaging/broker/unrouted                                 # how many
+curl -X POST "http://localhost:8082/admin/messaging/broker/unrouted/move?exchange=gm.events" # publish them again
 ```
 
 CI shows this with `ReturnRequested`, which the API publishes (`POST /api/v1/returns`, routing key
@@ -174,7 +168,7 @@ the outbox, both inboxes, dead letters and backups. Handlers reading those event
 encrypted fields.
 
 ```bash
-curl -H "$ADMIN" -X DELETE http://localhost:8080/admin/messaging/subject-keys/<user id>   # 204; 404 when there's none
+curl -X DELETE http://localhost:8080/admin/messaging/subject-keys/<user id>   # 204; 404 when there's none
 ```
 
 The request also reaches the copies services made in their own tables. `AddGMOutbox` registers
@@ -198,13 +192,13 @@ nothing for it. In production, keep Data Protection's keys in a shared store pro
 AWS KMS. Or implement `ISensitiveDataKeyRing` against your key service. To make the next key, ask any host:
 
 ```bash
-curl -H "$ADMIN" -X POST http://localhost:8080/admin/messaging/sensitive-data/keys   # {"value":"dp:..."}: add it under Keys
+curl -X POST http://localhost:8080/admin/messaging/sensitive-data/keys   # {"value":"dp:..."}: add it under Keys
 ```
 **Rotating the key ring.** CI does this after its other checks:
 
 ```bash
 SAMPLE_CURRENT_KEY_ID=sample-2026-12 docker compose up -d --scale producer-worker=2   # deploy with the new current key
-curl -H "$ADMIN" -X POST http://localhost:8080/admin/messaging/subject-keys/rewrap       # how many keys were re-wrapped
+curl -X POST http://localhost:8080/admin/messaging/subject-keys/rewrap       # how many keys were re-wrapped
 ```
 
 New per-person keys are wrapped with `sample-2026-12` straight away, and the re-wrap moves the existing

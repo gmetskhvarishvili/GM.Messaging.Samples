@@ -10,7 +10,7 @@
 #   RabbitMQ (AMQP)         amqps://localhost:5671, TLS only (certificates from deploy/tls/generate.sh)
 #   Consumer A              http://localhost:8081/health/ready
 #   Consumer B              http://localhost:8082/health/ready, /admin/messaging/inbox, /admin/messaging/broker/...
-#   Admin endpoints         /admin/messaging/... on every host, with the header X-Admin-Key: sample-admin-key
+#   Admin endpoints         /admin/messaging/... on every host
 #   Producer worker(s)      http://localhost:8083/health/ready (and 8084 for the second replica)
 #
 # The API applies the application database's migrations; the producer worker waits for them. Each consumer
@@ -47,8 +47,6 @@ x-messaging: &messaging
   Messaging__SensitiveData__DataProtection__KeysPath: /dataprotection
   # Per-person keys ([DataSubject]), shared by every service that reads those events; GM.Messaging creates the table.
   ConnectionStrings__SubjectKeys: "Host=postgres;Port=5432;Database=messaging_keys;Username=postgres;Password=123456"
-  # The key for GM.Messaging's admin endpoints (/admin/messaging, X-Admin-Key header) in every host.
-  Admin__ApiKey: sample-admin-key
 
 services:
   postgres:

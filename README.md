@@ -23,7 +23,7 @@ GM.Messaging.Samples/
 │   ├── GM.Messaging.Sample.Application      # CQRS commands + validators (Create Order/Payment/…)
 │   ├── GM.Messaging.Sample.Domain           # Integration events + the outbox aggregate
 │   ├── GM.Messaging.Sample.Persistence      # EF Core persistence (PostgreSQL)
-│   ├── GM.Messaging.Sample.Common           # Shared resources, admin endpoints + API-key policy
+│   ├── GM.Messaging.Sample.Common           # Shared resources (exceptions)
 │   └── GM.Messaging.Sample.Producer.Worker  # The outbox relay (leased, confirmed, retried, ordered); health
 ├── ConsumerA (Domain / Infrastructure / Persistence / Worker)   # customer activity via ProcessAsync
 ├── ConsumerB (Domain / Infrastructure / Persistence / Worker)   # order timeline, stock, inbox-worker emails
@@ -48,7 +48,7 @@ docker compose up -d --build
 | API + Swagger | http://localhost:8080 |
 | RabbitMQ management | http://localhost:15672 (gm-admin / gm-admin-secret); AMQP is TLS-only on 5671 |
 | Consumer A / B, producer worker | http://localhost:8081, :8082, :8083: `/health/ready` |
-| Admin endpoints (every host) | `/admin/messaging/...` with the header `X-Admin-Key: sample-admin-key` |
+| Admin endpoints (every host) | `/admin/messaging/...` (open in the sample) |
 
 [`GM.Messaging.Sample.API.http`](GM.Messaging.Sample.API/GM.Messaging.Sample.API.http) has a request for
 every endpoint, including the failure cases and the workers' admin endpoints. To run the projects with
@@ -71,7 +71,7 @@ Every GM.Messaging feature, each where a real service would use it:
 | **Transactional inbox**: the handler's changes and the inbox row commit together | ConsumerA (`customer_activities`), ConsumerB (`order_timeline`, `stock_levels`) via `ProcessAsync` |
 | **Retried failures** recorded on the inbox row, then the broker's dead-letter queue | ConsumerA rejects orders in `XXX`; CI fixes the cause, replays the dead letter and checks it was handled |
 | **Inbox worker** for slow work, with backoff and dead-lettering | ConsumerB's welcome emails (`IngestAsync` + `IInboxHandler`); `@bounce.test` addresses fail |
-| **Admin endpoints** for the outbox, inbox, broker queues and subject keys, behind an authorization policy | `MapGMMessagingAdmin()` (GM.Messaging.AspNetCore) in every host under `/admin/messaging`; the `messaging-admin` policy takes an `X-Admin-Key` header here. Message bodies show with `[SensitiveData]` masked (`BrokerMessageBodies.Redacted`) |
+| **Admin endpoints** for the outbox, inbox, broker queues and subject keys, behind your authorization policy | `MapGMMessagingAdmin()` (GM.Messaging.AspNetCore) in every host under `/admin/messaging`; open in the sample (`AllowAnonymous`), behind your own policy in a real service. Message bodies show with `[SensitiveData]` masked (`BrokerMessageBodies.Redacted`) |
 | **No lost unrouted messages**: anything published with no queue bound is kept | The API's `ReturnRequested` has no consumer yet, so it waits in `gm.unrouted`; `POST /admin/messaging/broker/unrouted/move?exchange=gm.events` sends it on once a queue exists |
 | **Health checks** in every host: database, RabbitMQ, backlog, broker queues | `/health/ready` (`AddGMDatabaseCheck`, `AddGMMessagingCheck`, `AddGMMessagingBacklogCheck`; the workers add `AddGMBrokerQueueCheck`) |
 | **Broker queue depths**: what waits on RabbitMQ | GM.Messaging reads each worker's queues every 30 s for the broker queue health check |
@@ -115,8 +115,8 @@ services.AddGMInbox<InboxMessage, ConsumerDbContext>();
 builder.Services.AddGMInboxWorker<InboxMessage, ConsumerDbContext>();
 builder.Services.AddGMInboxHandler<UserRegisteredIntegrationEvent, SendWelcomeEmail>();
 
-// Every host: GM.Messaging's admin endpoints, behind an authorization policy.
-app.MapGMMessagingAdmin(admin => admin.AuthorizationPolicy = "messaging-admin");
+// Every host: GM.Messaging's admin endpoints, behind your authorization policy.
+app.MapGMMessagingAdmin(admin => admin.AuthorizationPolicy = "your-policy");
 ```
 
 A consumer handler:
@@ -153,7 +153,7 @@ the whole stack from `docker-compose.yml` with two relays and drives it through 
 - after switching to the `dp:`-protected key, re-wrapping moves every person's key to it, and events still flow;
 - a save in the API is published within seconds, although the relays poll every 30 s;
 - both relays are connected, and RabbitMQ received every event exactly once;
-- the admin endpoints refuse requests without the key, map what each host has, and with every host's
+- the admin endpoints map what each host has, and with every host's
   health checks report the backlog; nothing went unrouted.
 
 Then `tests/GM.Messaging.Sample.StackTests` runs against the same stack (`SAMPLE_STACK=true`) with the

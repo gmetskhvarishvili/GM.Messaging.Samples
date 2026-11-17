@@ -1,7 +1,7 @@
 ﻿using GM.API.Startup;
 using GM.HealthChecks.EntityFramework;
 using GM.HealthChecks.Messaging;
-using GM.Messaging.Sample.Common.Admin;
+using GM.Messaging.AspNetCore;
 using GM.Messaging.Sample.Persistence;
 using GM.Messaging.Sample.Persistence.Context;
 using Microsoft.EntityFrameworkCore;
@@ -22,17 +22,20 @@ builder.Services.AddHealthChecks()
     .AddGMDatabaseCheck<ApplicationDbContext>()
     .AddGMMessagingBacklogCheck(backlog => backlog.MaxPendingAge = TimeSpan.FromMinutes(2));
 
-// The outbox admin endpoints (GM.Messaging.AspNetCore) under /admin/messaging/outbox, behind the
-// messaging-admin policy (an X-Admin-Key header in this sample).
-builder.Services.AddSampleMessagingAdmin(builder.Configuration);
-
 var app = builder.Build();
 
 app.UseRouting();
 app.UseAuthentication();
 app.UseAuthorization();
 app.UseGMServices();
-app.MapSampleMessagingAdmin();
+// GM.Messaging's admin endpoints under /admin/messaging (whatever this host has: outbox, inbox, broker queues,
+// subject keys). The sample has no login, so they're open; a real service passes its own policy:
+// admin.AuthorizationPolicy = "your-policy". Broker message bodies show with [SensitiveData] masked.
+app.MapGMMessagingAdmin(admin =>
+{
+    admin.AllowAnonymous = true;
+    admin.MessageBodies = BrokerMessageBodies.Redacted;
+});
 
 using (var scope = app.Services.CreateScope())
 {
