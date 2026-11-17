@@ -107,8 +107,8 @@ builder.Services.AddGMIntegrationEvents(events => events
     .AddAssembly(typeof(SampleEventVersions).Assembly)
     .AddUpcaster<InventoryUpdatedIntegrationEvent>(fromVersion: 1, SampleEventVersions.InventoryUpdatedV1ToV2));
 
-// Consumers: the inbox. Handlers can take ConsumerDbContext too: AddGMInbox has Wolverine resolve it
-// from the message's scope, so it's the same instance IInboxProcessor commits.
+// Consumers: the inbox. Handlers write through IConsumerUnitOfWork: AddGMInbox has Wolverine resolve ConsumerDbContext
+// from the message's scope, so the repositories use the same instance IInboxProcessor commits.
 builder.Services.AddInfrastructure(builder.Configuration);   // AddGMMessaging
 services.AddGMInbox<InboxMessage, ConsumerDbContext>();
 
@@ -123,12 +123,10 @@ app.MapGMMessagingAdmin(admin => admin.AuthorizationPolicy = "your-policy");
 A consumer handler:
 
 ```csharp
-public static Task Handle(OrderPlacedIntegrationEvent message, IInboxProcessor inbox, ConsumerDbContext db, CancellationToken ct) =>
+public static Task Handle(OrderPlacedIntegrationEvent message, IInboxProcessor inbox, IConsumerUnitOfWork unitOfWork, CancellationToken ct) =>
     inbox.ProcessAsync(message, () =>
-    {
-        db.Add(CustomerActivity.Record(...)); // commits with the inbox row, or not at all
-        return Task.CompletedTask;
-    }, ct);
+        // commits with the inbox row, or not at all; ProcessAsync saves, so no SaveChanges here
+        unitOfWork.CustomerActivityRepository.AddAsync(CustomerActivity.Record(...), ct), ct);
 ```
 
 The `outbox_messages` and `inbox_messages` tables live in a shared `messaging` schema. The API migrates
