@@ -187,6 +187,9 @@ jobs:
           # The consumers handled events, and none saw an event twice (a duplicate publish would show here).
           check 'sum({__name__=~"gm_messaging_inbox_processed.*_total"}) > bool 0' 1
           check 'sum({__name__=~"gm_messaging_inbox_duplicates.*_total"}) or vector(0)' 0
+          # Broker queue depths (GM.Messaging's queue monitor): ConsumerB reports its inventory queue, with its 100000 limit.
+          check 'max({__name__=~"gm_messaging_broker_queue_limit.*", queue="gm.consumer-b.inventory"})' 100000
+          check 'count({__name__=~"gm_messaging_broker_queue_messages.*", queue="gm.consumer-b.inventory", role="consumer"}) > bool 0' 1
 
       - name: The admin endpoints and health checks report the backlog and dead letters
         env:
@@ -232,8 +235,17 @@ jobs:
           admin -X POST "http://localhost:8082/admin/messaging/broker/dead-letters/replay?queue=gm.consumer-a.orders&dryRun=true" | jq -e '.matched >= 1 and .transferred == 0'
           admin -X POST "http://localhost:8082/admin/messaging/broker/dead-letters/replay?queue=no-such-queue" | jq -e '.matched == 0 and .transferred == 0'
           [ "$(admin http://localhost:8082/admin/messaging/broker/dead-letters | jq '.messages')" = "$before" ]
-          # Every worker's readiness includes its backlog check.
+          # Every worker's readiness includes its backlog check and its broker queue check.
           for port in 8081 8082 8083 8084; do curl -s "http://localhost:$port/health/ready" | grep -q 'messaging-backlog'; done
+          for port in 8081 8082 8083 8084; do curl -s "http://localhost:$port/health/ready" | grep -q 'messaging-broker-queues'; done
+          # The XXX order waits in the broker's dead-letter queue, so the broker queue check reports it (Degraded) once
+          # the monitor has read the queues (every 30 s).
+          for i in $(seq 1 40); do
+            curl -s http://localhost:8082/health/ready \
+              | jq -e '.checks[] | select(.name == "gm:messaging-broker-queues") | .status == "Degraded"' > /dev/null && break
+            [ "$i" = 40 ] && { echo "The broker queue check never reported the dead letter"; curl -s http://localhost:8082/health/ready; exit 1; }
+            sleep 2
+          done
 
       - name: Recovery — fix ConsumerA, replay its dead letter, and it's handled once
         env:

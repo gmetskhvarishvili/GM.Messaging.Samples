@@ -75,7 +75,8 @@ Every GM.Messaging feature, each where a real service would use it:
 | **Inbox worker** for slow work, with backoff and dead-lettering | ConsumerB's welcome emails (`IngestAsync` + `IInboxHandler`); `@bounce.test` addresses fail |
 | **Admin endpoints** for the outbox, inbox, broker queues and subject keys, behind an authorization policy | `MapGMMessagingAdmin()` (GM.Messaging.AspNetCore) in every host under `/admin/messaging`; the `messaging-admin` policy takes an `X-Admin-Key` header here. Message bodies show with `[SensitiveData]` masked (`BrokerMessageBodies.Redacted`) |
 | **No lost unrouted messages**: anything published with no queue bound is kept | The API's `ReturnRequested` has no consumer yet, so it waits in `gm.unrouted`; `POST /admin/messaging/broker/unrouted/move?exchange=gm.events` sends it on once a queue exists |
-| **Health checks** in every host: database, RabbitMQ, backlog | `/health/ready` (`AddGMDatabaseCheck`, `AddGMMessagingCheck`, `AddGMMessagingBacklogCheck`) |
+| **Health checks** in every host: database, RabbitMQ, backlog, broker queues | `/health/ready` (`AddGMDatabaseCheck`, `AddGMMessagingCheck`, `AddGMMessagingBacklogCheck`; the workers add `AddGMBrokerQueueCheck`) |
+| **Broker queue depths**: what waits on RabbitMQ | GM.Messaging reads each worker's queues every 30 s: the `gm_messaging_broker_queue_messages` and `_limit` metrics in Prometheus, and the broker queue health check |
 | **Traces and metrics** | OpenTelemetry in every host (`AddSampleTelemetry`) → OpenTelemetry collector → Jaeger and Prometheus |
 | **One consumer name per service** | `Messaging:Inbox:ConsumerName`; handlers call `ProcessAsync(message, handler)` |
 | **Retention** | Published outbox rows go after 7 days, handled inbox rows after 30 |
