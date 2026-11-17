@@ -6,6 +6,7 @@ using GM.Messaging.Sample.Domain.Events;
 using GM.Messaging.Sample.Domain.Events.Inventory;
 using GM.Messaging.Sample.Domain.Events.Orders;
 using GM.Messaging.Sample.Domain.Events.Payments;
+using GM.Messaging.Sample.Domain.Events.Returns;
 using GM.Messaging.Sample.Domain.Events.Users;
 using Xunit;
 
@@ -37,6 +38,32 @@ public class OutboxMessageTests
         Assert.Contains("gmenc:", outbox.Payload, StringComparison.Ordinal);
         var read = (UserRegisteredIntegrationEvent)IntegrationEventSerializer.Deserialize(outbox.Payload, typeof(UserRegisteredIntegrationEvent), outbox.EventVersion);
         Assert.Equal(("ana@example.test", "Ana Beridze"), (read.Email, read.Name));
+    }
+
+    [Fact]
+    public void From_UserRegistered_EncryptsWithTheUsersOwnKey()
+    {
+        var userId = Guid.NewGuid();
+        var outbox = OutboxMessage.From(new UserRegisteredIntegrationEvent(userId, "ana@example.test", "Ana"));
+
+        // UserId stays readable (once, though the event redeclares it to mark it [DataSubject]) and names whose key is used.
+        Assert.Single(JsonDocument.Parse(outbox.Payload).RootElement.EnumerateObject(), p => p.Name.Equals("UserId", StringComparison.OrdinalIgnoreCase));
+        Assert.Contains(userId.ToString(), TestSensitiveDataProtector.Subjects);
+        var read = (UserRegisteredIntegrationEvent)IntegrationEventSerializer.Deserialize(outbox.Payload, typeof(UserRegisteredIntegrationEvent), outbox.EventVersion);
+        Assert.Equal(userId, read.UserId);
+        Assert.Equal(userId, ((IntegrationEvent)read).UserId);
+    }
+
+    [Fact]
+    public void From_ReturnRequested_EncryptsTheContactEmailWithTheCustomersKey()
+    {
+        var customerId = Guid.NewGuid();
+        var outbox = OutboxMessage.From(new ReturnRequestedIntegrationEvent(Guid.NewGuid(), Guid.NewGuid(), customerId, "ana@example.test", "Wrong size"));
+
+        Assert.Equal("returns.return-requested", outbox.EventType);
+        Assert.DoesNotContain("ana@example.test", outbox.Payload, StringComparison.Ordinal);
+        Assert.Contains("Wrong size", outbox.Payload, StringComparison.Ordinal);
+        Assert.Contains(customerId.ToString(), TestSensitiveDataProtector.Subjects);
     }
 
     [Fact]

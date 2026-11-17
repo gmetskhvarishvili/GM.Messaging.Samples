@@ -73,18 +73,20 @@ Every GM.Messaging feature, each where a real service would use it:
 | **Transactional inbox**: the handler's changes and the inbox row commit together | ConsumerA (`customer_activities`), ConsumerB (`order_timeline`, `stock_levels`) via `ProcessAsync` |
 | **Retried failures** recorded on the inbox row, then the broker's dead-letter queue | ConsumerA rejects orders in `XXX`; CI fixes the cause, replays the dead letter and checks it was handled |
 | **Inbox worker** for slow work, with backoff and dead-lettering | ConsumerB's welcome emails (`IngestAsync` + `IInboxHandler`); `@bounce.test` addresses fail |
-| **Admin endpoints** for the outbox, inbox and broker queues, behind an authorization policy | `MapGMMessagingAdmin()` (GM.Messaging.AspNetCore) in every host under `/admin/messaging`; the `messaging-admin` policy takes an `X-Admin-Key` header here |
-| **No lost unrouted messages**: anything published with no queue bound is kept | The `gm.unrouted` queue; `POST /admin/messaging/broker/unrouted/move?exchange=gm.events` sends them back |
+| **Admin endpoints** for the outbox, inbox, broker queues and subject keys, behind an authorization policy | `MapGMMessagingAdmin()` (GM.Messaging.AspNetCore) in every host under `/admin/messaging`; the `messaging-admin` policy takes an `X-Admin-Key` header here. Message bodies show with `[SensitiveData]` masked (`BrokerMessageBodies.Redacted`) |
+| **No lost unrouted messages**: anything published with no queue bound is kept | The API's `ReturnRequested` has no consumer yet, so it waits in `gm.unrouted`; `POST /admin/messaging/broker/unrouted/move?exchange=gm.events` sends it on once a queue exists |
 | **Health checks** in every host: database, RabbitMQ, backlog | `/health/ready` (`AddGMDatabaseCheck`, `AddGMMessagingCheck`, `AddGMMessagingBacklogCheck`) |
 | **Traces and metrics** | OpenTelemetry in every host (`AddSampleTelemetry`) → OpenTelemetry collector → Jaeger and Prometheus |
 | **One consumer name per service** | `Messaging:Inbox:ConsumerName`; handlers call `ProcessAsync(message, handler)` |
 | **Retention** | Published outbox rows go after 7 days, handled inbox rows after 30 |
-| **Personal data in events**: only where needed, and encrypted | `UserRegistered.Email`/`Name` are `[SensitiveData]` (`AddGMSensitiveData`, key ring in `Messaging:SensitiveData`): ciphertext in the outbox, the inbox and on RabbitMQ; other events carry ids only |
-| **A secured broker**: TLS only, a user per service | A sample CA (`deploy/tls/generate.sh`) and `Messaging:RabbitMq:TlsCaCertificatePath`; per-service users with scoped permissions (`deploy/rabbitmq/setup.sh`) |
+| **Personal data in events**: only where needed, and encrypted | `UserRegistered.Email`/`Name` and `ReturnRequested.ContactEmail` are `[SensitiveData]` (`AddGMSensitiveData`, key ring in `Messaging:SensitiveData`): ciphertext in the outbox, the inbox and on RabbitMQ; other events carry ids only |
+| **A key per person, and erasure** (crypto-shredding) | `[DataSubject]` on `UserId`/`CustomerId`; keys in the shared `messaging_keys` database (`AddGMSubjectKeys`, `EnsureKeyAsync` in the API). `DELETE /admin/messaging/subject-keys/{id}` makes that person's data unreadable everywhere |
+| **Key rotation**, with the new key kept out of configuration | `sample-2026-12` is a `dp:` value (Data Protection, keys in `deploy/dataprotection`); CI makes it current and re-wraps every person's key (`POST /admin/messaging/subject-keys/rewrap`) |
+| **A secured broker**: TLS only, a user per service, mutual TLS | A sample CA (`deploy/tls/generate.sh`) and `Messaging:RabbitMq:TlsCaCertificatePath`; per-service users with scoped permissions (`deploy/rabbitmq/setup.sh`); ConsumerA signs in with a client certificate (`TlsClientCertificatePath`, `UseExternalAuthentication`) |
 
 [docs/architecture.md](docs/architecture.md) walks one event through the system and lists what happens
-on each kind of failure; [docs/operations.md](docs/operations.md) covers dead letters, health, traces,
-metrics and settings.
+on each kind of failure; [docs/operations.md](docs/operations.md) covers dead letters, keys and erasure,
+health, traces, metrics and settings.
 
 ## How GM.Messaging is wired
 
@@ -137,14 +139,17 @@ dotnet test
 ```
 
 Unit tests cover the command validators, the events (stable names, ordering keys, the version-2 upcaster,
-trace capture) and outbox serialization. CI's `compose` job also runs the whole stack from
-`docker-compose.yml` with two relays and drives it through the API. It checks that:
+trace capture, whose key encrypts personal data) and outbox serialization. CI's `compose` job also runs
+the whole stack from `docker-compose.yml` with two relays and drives it through the API. It checks that:
 
 - each consumer handled every event once, and ConsumerB's timeline has an order before its payment;
 - the failing order was retried and reached the broker's dead-letter queue, and the bouncing email was dead-lettered in the inbox;
 - after the cause is fixed, replaying the dead-lettered order gets it handled, and an unrouted message is
   moved to the queue created for it;
 - a version-1 `InventoryUpdated` published straight to RabbitMQ is upcast and handled;
+- each user's data is encrypted with their own key, and deleting the key (an erasure request) works;
+- ConsumerA is connected with its client certificate (EXTERNAL) and has no password;
+- after switching to the `dp:`-protected key, re-wrapping moves every person's key to it, and events still flow;
 - a save in the API is published within seconds, although the relays poll every 30 s;
 - Prometheus shows both relays, every event published exactly once, and no inbox duplicates;
 - the admin endpoints refuse requests without the key, map what each host has, and with every host's
@@ -154,6 +159,8 @@ Then `tests/GM.Messaging.Sample.StackTests` runs against the same stack (`SAMPLE
 GM.Testing.Messaging.Integration assertions. It checks that the outbox is drained, and that Ana's
 registration is stored encrypted and was handled by both consumers. It also checks that the bounce is
 dead-lettered in ConsumerB's inbox, the recovered order was handled, and nothing is left unrouted.
+Finally, it checks that the return request's contact email decrypts with the customer's key, the erased
+user's email and name read as `null`, and every person's key is wrapped with the new key.
 Without `SAMPLE_STACK` these tests skip.
 
 ## Requirements

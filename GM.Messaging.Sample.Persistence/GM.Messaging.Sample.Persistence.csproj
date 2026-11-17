@@ -27,7 +27,7 @@
 
     <ItemGroup>
         <!-- GM.Messaging (not just GM.Messaging.Persistence) so AddPersistence can register the outbox relay worker. -->
-        <PackageReference Include="GM.Messaging" Version="4.4.0" />
+        <PackageReference Include="GM.Messaging" Version="4.5.0" />
         <ProjectReference Include="..\GM.Messaging.Sample.Common\GM.Messaging.Sample.Common.csproj" />
         <ProjectReference Include="..\GM.Messaging.Sample.Domain\GM.Messaging.Sample.Domain.csproj" />
     </ItemGroup>
