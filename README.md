@@ -99,7 +99,7 @@ health, traces, metrics and settings.
 ```csharp
 // Producer persistence: personal data (the key ring and per-person keys) and the outbox (admin, erasure events,
 // and the relay in the producer worker or, in the API, wake-ups that make every relay publish at once).
-services.AddDbContextPool<ApplicationDbContext>((sp, o) => o.UseNpgsql(cs).UseGMMessaging(sp));   // every GM interceptor
+services.AddDbContextPool<ApplicationDbContext>(o => o.UseNpgsql(cs));   // AddGMOutbox attaches GM's interceptors
 services.AddGMSensitiveData(configuration, subjectKeys: (db, keys) => db.UseNpgsql(keys).UseSnakeCaseNamingConvention());
 services.AddGMOutbox<OutboxMessage, ApplicationDbContext>(configuration, relay: runOutboxRelay);
 

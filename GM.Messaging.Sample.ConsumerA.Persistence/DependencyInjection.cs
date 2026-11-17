@@ -15,15 +15,15 @@ public static class DependencyInjection
 {
     public static IServiceCollection AddPersistence(this IServiceCollection services, IConfiguration configuration)
     {
-        services.AddDbContext<ConsumerDbContext>((serviceProvider, options) =>
+        // Only our own settings: AddGMInbox (below) attaches GM.Messaging's save interceptors to this DbContext.
+        services.AddDbContext<ConsumerDbContext>(options =>
         {
             options.UseNpgsql(configuration.GetConnectionString("ApplicationDatabase"),
                 o =>
                 {
                     o.UseQuerySplittingBehavior(QuerySplittingBehavior.SplitQuery);
                     o.CommandTimeout(60);
-                }).UseSnakeCaseNamingConvention()
-                .UseGMMessaging(serviceProvider); // GM.Messaging's interceptors (payload protection, if registered)
+                }).UseSnakeCaseNamingConvention();
         });
 
         services.AddTransient<IInboxMessageRepository, InboxMessageRepository>();
