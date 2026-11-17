@@ -1,6 +1,5 @@
 ﻿using FluentValidation;
 using GM.Mediator.Contracts;
-using GM.Messaging.Persistence.Protection;
 using GM.Messaging.Sample.Domain.BoundedContext.MessagingBoundedContext.OutboxMessageAggregate;
 using GM.Messaging.Sample.Domain.Events.Users;
 using GM.Messaging.Sample.Domain.SeedWork;
@@ -24,15 +23,12 @@ public class RegisterUserCommandValidator : AbstractValidator<RegisterUserComman
     }
 }
 
-public class RegisterUserCommandHandler(IUnitOfWork unitOfWork, ISubjectKeyStore subjectKeys)
+public class RegisterUserCommandHandler(IUnitOfWork unitOfWork)
     : IRequestHandler<RegisterUserCommand, RegisterUserResult>
 {
     public async Task<RegisterUserResult> Handle(
         RegisterUserCommand request, CancellationToken cancellationToken)
     {
-        // The user's own key encrypts their email and name; create it before the event is serialized.
-        await subjectKeys.EnsureKeyAsync(request.UserId.ToString(), cancellationToken);
-
         var evt = new UserRegisteredIntegrationEvent(
             request.UserId,
             request.Email,

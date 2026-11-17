@@ -1,6 +1,5 @@
 using FluentValidation;
 using GM.Mediator.Contracts;
-using GM.Messaging.Persistence.Protection;
 using GM.Messaging.Sample.Domain.BoundedContext.MessagingBoundedContext.OutboxMessageAggregate;
 using GM.Messaging.Sample.Domain.Events.Returns;
 using GM.Messaging.Sample.Domain.SeedWork;
@@ -28,14 +27,11 @@ public class RequestReturnCommandValidator : AbstractValidator<RequestReturnComm
     }
 }
 
-public class RequestReturnCommandHandler(IUnitOfWork unitOfWork, ISubjectKeyStore subjectKeys)
+public class RequestReturnCommandHandler(IUnitOfWork unitOfWork)
     : IRequestHandler<RequestReturnCommand, RequestReturnResult>
 {
     public async Task<RequestReturnResult> Handle(RequestReturnCommand request, CancellationToken cancellationToken)
     {
-        // The customer's key exists before the event is serialized, so writing it doesn't block on the database.
-        await subjectKeys.EnsureKeyAsync(request.CustomerId.ToString(), cancellationToken);
-
         var evt = new ReturnRequestedIntegrationEvent(request.ReturnId, request.OrderId, request.CustomerId, request.ContactEmail, request.Reason);
         await unitOfWork.OutboxMessageRepository.AddAsync(OutboxMessage.From(evt), cancellationToken);
         await unitOfWork.SaveChangesAsync(cancellationToken);
